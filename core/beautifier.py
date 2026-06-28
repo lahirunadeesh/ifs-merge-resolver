@@ -123,5 +123,11 @@ def _beautify_generic(text: str) -> str:
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 
 def _remove_excess_blank_lines(text: str) -> str:
-    """Collapse 3+ consecutive blank lines down to 1."""
+    """Collapse 2+ consecutive blank lines down to 1."""
     return re.sub(r'\n{3,}', '\n\n', text).strip()
+
+
+def strip_blank_lines(text: str) -> str:
+    """Remove all standalone blank lines — used for compact inline blocks."""
+    lines = [l for l in text.splitlines() if l.strip()]
+    return "\n".join(lines)

@@ -4,7 +4,7 @@ import re
 import difflib
 from pathlib import Path
 from core.file_types import IFS_FILE_TYPES
-from core.beautifier import beautify
+from core.beautifier import beautify, strip_blank_lines
 
 CONFLICT_START = re.compile(r'^<{7} ')
 CONFLICT_SEP   = re.compile(r'^={7}$')
@@ -92,7 +92,7 @@ def parse_conflicts(file_path: str) -> list[dict]:
                 diff = []
 
             raw_preview = _smart_merge_preview(local_lines, repo_lines)
-            preview     = beautify(raw_preview, ext)
+            preview     = strip_blank_lines(beautify(raw_preview, ext))
 
             conflicts.append({
                 "index":      len(conflicts),
@@ -200,15 +200,13 @@ def _smart_merge_both(local_lines: list[str], repo_lines: list[str]) -> str:
     merged_comments = _merge_comment_blocks(local_comments, repo_comments)
     merged_code     = _merge_code_lines(local_code, repo_code)
 
-    result_parts = []
+    parts = []
     if merged_comments:
-        result_parts.append("".join(merged_comments).rstrip())
+        parts.append("".join(merged_comments).rstrip())
     if merged_code:
-        if result_parts:
-            result_parts.append("\n")
-        result_parts.append("".join(merged_code).rstrip())
+        parts.append("".join(merged_code).rstrip())
 
-    return "\n".join(result_parts) if result_parts else ""
+    return "\n".join(parts)
 
 
 def _split_comments_and_code(lines: list[str]) -> tuple[list[str], list[str]]:
