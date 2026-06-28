@@ -15,7 +15,7 @@
         <section id="setup">
             <h2>Project Root</h2>
             <div class="folder-input">
-                <input type="text" id="rootPath" placeholder="Enter your IFS project root path..." />
+                <input type="text" id="rootPath" placeholder="Enter your IFS project root path e.g. /Users/you/projects/mycomponent" />
                 <button id="scanBtn" onclick="scanFolder()">Scan for Conflicts</button>
             </div>
         </section>
@@ -26,12 +26,26 @@
         </section>
 
         <section id="resolver" style="display:none;">
-            <h2>Resolve Conflict</h2>
-            <div id="conflictView"></div>
+            <div class="resolver-header">
+                <h2 id="currentFileName"></h2>
+                <span id="conflictCounter" class="counter"></span>
+            </div>
+
+            <div class="panes">
+                <div class="pane local">
+                    <div class="pane-label">Local (your changes)</div>
+                    <pre id="localPane"></pre>
+                </div>
+                <div class="pane repo">
+                    <div class="pane-label">Incoming (repo changes)</div>
+                    <pre id="repoPane"></pre>
+                </div>
+            </div>
+
             <div class="actions">
-                <button onclick="resolve('local')">Keep Local Changes</button>
-                <button onclick="resolve('repo')">Keep Repo Changes</button>
-                <button onclick="resolve('both')">Keep Both Changes</button>
+                <button class="btn-local" onclick="resolve('local')">Keep Local</button>
+                <button class="btn-repo" onclick="resolve('repo')">Keep Repo</button>
+                <button class="btn-both" onclick="resolve('both')">Keep Both</button>
             </div>
         </section>
     </main>
