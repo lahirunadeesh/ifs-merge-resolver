@@ -250,6 +250,90 @@ button:disabled:hover { background: #b2bec3; }
 .info-repo  { background: #fff8f8; border-color: #d63031; color: #c0392b; }
 .info-both  { background: #f5f3ff; border-color: #6c5ce7; color: #5a4bd1; }
 
+/* ── Modal ── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.modal {
+    background: white;
+    border-radius: 10px;
+    width: 560px;
+    max-width: 95vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    overflow: hidden;
+}
+.modal-header {
+    padding: 16px 20px;
+    font-weight: 700;
+    font-size: 15px;
+    border-bottom: 1px solid #dfe6e9;
+    background: #f8f9fa;
+}
+.modal-body {
+    padding: 18px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+.modal-body p {
+    font-size: 14px;
+    color: #2d3436;
+    margin-bottom: 14px;
+    line-height: 1.5;
+}
+.modal-preview-wrap {
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #dfe6e9;
+}
+.modal-preview-wrap .pane-label {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: #f0fdf8;
+    color: #00695c;
+}
+#modalPreview {
+    padding: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.6;
+    background: #fafafa;
+    max-height: 260px;
+    overflow-y: auto;
+}
+.modal-footer {
+    padding: 14px 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    border-top: 1px solid #dfe6e9;
+    background: #f8f9fa;
+}
+.btn-cancel {
+    background: #636e72;
+    color: white;
+}
+.btn-cancel:hover { background: #4d5760; }
+.btn-confirm-local { background: #00b894; }
+.btn-confirm-local:hover { background: #00a381; }
+.btn-confirm-repo  { background: #d63031; }
+.btn-confirm-repo:hover  { background: #b52a2a; }
+.btn-confirm-both  { background: #6c5ce7; }
+.btn-confirm-both:hover  { background: #5a4bd1; }
+
 /* ── Toast ── */
 .toast {
     position: fixed;

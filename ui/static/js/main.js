@@ -114,10 +114,12 @@ function renderConflict() {
 }
 
 const STRATEGY_LABELS = {
-    local: { text: "Local changes kept — incoming changes discarded.", type: "local" },
-    repo:  { text: "Incoming changes kept — local changes discarded.", type: "repo" },
-    both:  { text: "Both changes merged — comments placed in order.", type: "both" },
+    local: { text: "Local changes will be kept. Incoming repo changes will be discarded.", type: "local", btnClass: "btn-confirm-local" },
+    repo:  { text: "Incoming repo changes will be kept. Your local changes will be discarded.", type: "repo", btnClass: "btn-confirm-repo" },
+    both:  { text: "Both changes will be merged using the preview below.", type: "both", btnClass: "btn-confirm-both" },
 };
+
+let pendingStrategy = null;
 
 function setInfoMessage(text, type) {
     const el = document.getElementById("infoMessage");
@@ -126,9 +128,56 @@ function setInfoMessage(text, type) {
     el.style.display = text ? "block" : "none";
 }
 
-async function resolve(strategy) {
+function resolve(strategy) {
     const info = STRATEGY_LABELS[strategy];
-    setInfoMessage(`Processing… ${info.text}`, info.type);
+    const c = currentConflicts[currentIndex];
+    pendingStrategy = strategy;
+
+    document.getElementById("modalTitle").textContent =
+        strategy === "local" ? "Keep Local Changes" :
+        strategy === "repo"  ? "Keep Repo Changes" : "Keep Both Changes";
+
+    document.getElementById("modalMessage").textContent = info.text;
+
+    const previewWrap = document.getElementById("modalPreviewWrap");
+    const previewEl   = document.getElementById("modalPreview");
+
+    if (strategy === "both" && c.preview) {
+        previewEl.textContent = c.preview;
+        previewWrap.style.display = "block";
+    } else if (strategy === "local") {
+        previewEl.textContent = c.local || "(empty)";
+        previewWrap.style.display = "block";
+    } else if (strategy === "repo") {
+        previewEl.textContent = c.repo || "(empty)";
+        previewWrap.style.display = "block";
+    } else {
+        previewWrap.style.display = "none";
+    }
+
+    const confirmBtn = document.getElementById("modalConfirmBtn");
+    confirmBtn.className = info.btnClass;
+
+    document.getElementById("modalOverlay").style.display = "flex";
+}
+
+function cancelResolve() {
+    pendingStrategy = null;
+    document.getElementById("modalOverlay").style.display = "none";
+}
+
+async function confirmResolve() {
+    document.getElementById("modalOverlay").style.display = "none";
+    const strategy = pendingStrategy;
+    pendingStrategy = null;
+
+    const info = STRATEGY_LABELS[strategy];
+    setInfoMessage(
+        strategy === "local" ? "✓ Local changes applied." :
+        strategy === "repo"  ? "✓ Repo changes applied." :
+                               "✓ Both changes merged.",
+        info.type
+    );
 
     const res = await fetch("/api/resolve", {
         method: "POST",
@@ -143,7 +192,6 @@ async function resolve(strategy) {
         return alert(data.detail || "Resolve failed.");
     }
 
-    // Re-fetch conflicts after each resolution so line positions stay accurate
     const updated = await fetch("/api/conflicts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -156,7 +204,6 @@ async function resolve(strategy) {
     if (currentConflicts.length === 0) {
         document.getElementById("resolver").style.display = "none";
         showToast("All conflicts resolved in this file!");
-        // Refresh the file list
         scanFolder();
     } else {
         renderConflict();
