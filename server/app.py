@@ -26,7 +26,12 @@ from licensing.validator import is_licensed, activate as do_activate
 
 app = FastAPI(title="IFS Merge Conflict Resolver")
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# When frozen by PyInstaller, resources live in Contents/Resources (sys._MEIPASS)
+if getattr(sys, "frozen", False):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
 
 
