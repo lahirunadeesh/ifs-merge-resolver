@@ -1,10 +1,10 @@
 import os
 import sys
+import platform
+import subprocess
 import webbrowser
 import threading
 import asyncio
-import tkinter as tk
-from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -54,18 +54,49 @@ class ResolveRequest(BaseModel):
 
 @app.get("/api/browse")
 async def browse_folder():
-    """Open native OS folder picker in a thread so it doesn't block the event loop."""
-    def _open_dialog():
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes("-topmost", True)
-        folder = filedialog.askdirectory(title="Select IFS Project Root")
-        root.destroy()
-        return folder or None
-
+    """Open a native OS folder picker dialog."""
     loop = asyncio.get_event_loop()
-    folder = await loop.run_in_executor(_executor, _open_dialog)
+    folder = await loop.run_in_executor(_executor, _open_folder_dialog)
     return {"path": folder}
+
+
+def _open_folder_dialog() -> str | None:
+    """Platform-specific native folder picker (no tkinter)."""
+    system = platform.system()
+
+    if system == "Darwin":
+        script = (
+            'tell app "Finder" to POSIX path of '
+            '(choose folder with prompt "Select IFS Project Root")'
+        )
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True
+        )
+        path = result.stdout.strip()
+        return path if path else None
+
+    elif system == "Windows":
+        import ctypes
+        import ctypes.wintypes
+        BFFM_INITIALIZED = 1
+        shell32 = ctypes.windll.shell32
+        buf = ctypes.create_unicode_buffer(256)
+        bi = ctypes.create_string_buffer(76)
+        result = shell32.SHGetPathFromIDListW(
+            shell32.SHBrowseForFolderW(ctypes.byref(bi)), buf
+        )
+        return buf.value if result else None
+
+    else:
+        # Linux fallback: zenity
+        result = subprocess.run(
+            ["zenity", "--file-selection", "--directory",
+             "--title=Select IFS Project Root"],
+            capture_output=True, text=True
+        )
+        path = result.stdout.strip()
+        return path if path else None
 
 
 @app.post("/api/scan")
