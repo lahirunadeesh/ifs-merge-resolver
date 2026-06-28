@@ -12,11 +12,46 @@
     </header>
 
     <main>
+
+        <!-- ── Saved Projects ── -->
+        <section id="projectsSection">
+            <div class="section-header">
+                <h2>Saved Projects</h2>
+                <button class="btn-small" onclick="showAddProject()">+ New Project</button>
+            </div>
+            <div id="projectList"><p class="empty">No saved projects yet.</p></div>
+        </section>
+
+        <!-- ── Add / Edit Project Modal ── -->
+        <div id="projectModalOverlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <div class="modal-header"><span id="projectModalTitle">New Project</span></div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Project Name</label>
+                        <input type="text" id="projectName" placeholder="e.g. CustomerOrder customisation" />
+                    </div>
+                    <div class="form-group">
+                        <label>Root Folder</label>
+                        <div class="folder-input">
+                            <div class="path-display" id="projectPathDisplay">No folder selected</div>
+                            <button class="btn-small" onclick="browseProjectFolder()">Browse…</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel" onclick="closeProjectModal()">Cancel</button>
+                    <button id="projectSaveBtn" class="btn-confirm-both" onclick="saveProject()">Save Project</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Scan Section ── -->
         <section id="setup">
-            <h2>Project Root</h2>
+            <h2>Scan a Folder</h2>
             <div class="folder-input">
                 <div class="path-display" id="pathDisplay">No folder selected</div>
-                <button onclick="browseFolder()">Browse...</button>
+                <button onclick="browseFolder()">Browse…</button>
                 <button id="scanBtn" onclick="scanFolder()" disabled>Scan for Conflicts</button>
             </div>
         </section>
@@ -27,7 +62,9 @@
         </div>
 
         <section id="results" style="display:none;">
-            <h2>Conflict Files</h2>
+            <div class="section-header">
+                <h2>Conflict Files <span id="resultsContext" class="results-context"></span></h2>
+            </div>
             <div id="fileList"></div>
         </section>
 
@@ -63,9 +100,7 @@
     <!-- Confirmation modal -->
     <div id="modalOverlay" class="modal-overlay" style="display:none;">
         <div class="modal">
-            <div class="modal-header">
-                <span id="modalTitle">Confirm Resolution</span>
-            </div>
+            <div class="modal-header"><span id="modalTitle">Confirm Resolution</span></div>
             <div class="modal-body">
                 <p id="modalMessage"></p>
                 <div class="modal-preview-wrap" id="modalPreviewWrap" style="display:none;">

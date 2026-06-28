@@ -20,6 +20,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from core.conflict_scanner import scan_for_conflicts, parse_conflicts, apply_resolution
+from core.project_store import list_projects, add_project, delete_project, rename_project
 
 app = FastAPI(title="IFS Merge Conflict Resolver")
 
@@ -49,6 +50,13 @@ class Resolution(BaseModel):
 class ResolveRequest(BaseModel):
     file: str
     resolutions: list[Resolution]
+
+class SaveProjectRequest(BaseModel):
+    name: str
+    path: str
+
+class RenameProjectRequest(BaseModel):
+    name: str
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
@@ -129,6 +137,32 @@ async def resolve(req: ResolveRequest):
         return {"status": "ok", "file": req.file}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/projects")
+async def get_projects():
+    return {"projects": list_projects()}
+
+@app.post("/api/projects")
+async def save_project(req: SaveProjectRequest):
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="Project name cannot be empty.")
+    if not req.path.strip():
+        raise HTTPException(status_code=400, detail="Path cannot be empty.")
+    project = add_project(req.name, req.path)
+    return {"project": project}
+
+@app.delete("/api/projects/{project_id}")
+async def remove_project(project_id: str):
+    if not delete_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return {"status": "deleted"}
+
+@app.patch("/api/projects/{project_id}")
+async def update_project(project_id: str, req: RenameProjectRequest):
+    if not rename_project(project_id, req.name):
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return {"status": "renamed"}
 
 
 @app.get("/health")
