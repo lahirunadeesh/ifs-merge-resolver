@@ -15,8 +15,9 @@
         <section id="setup">
             <h2>Project Root</h2>
             <div class="folder-input">
-                <input type="text" id="rootPath" placeholder="Enter your IFS project root path e.g. /Users/you/projects/mycomponent" />
-                <button id="scanBtn" onclick="scanFolder()">Scan for Conflicts</button>
+                <div class="path-display" id="pathDisplay">No folder selected</div>
+                <button onclick="browseFolder()">Browse...</button>
+                <button id="scanBtn" onclick="scanFolder()" disabled>Scan for Conflicts</button>
             </div>
         </section>
 

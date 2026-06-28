@@ -1,10 +1,20 @@
 let currentFile = null;
 let currentConflicts = [];
 let currentIndex = 0;
+let selectedPath = null;
+
+async function browseFolder() {
+    const res = await fetch("/api/browse");
+    const data = await res.json();
+    if (!data.path) return;
+    selectedPath = data.path;
+    document.getElementById("pathDisplay").textContent = selectedPath;
+    document.getElementById("pathDisplay").classList.add("has-path");
+    document.getElementById("scanBtn").disabled = false;
+}
 
 async function scanFolder() {
-    const path = document.getElementById("rootPath").value.trim();
-    if (!path) return alert("Please enter a project root path.");
+    if (!selectedPath) return;
 
     document.getElementById("scanBtn").textContent = "Scanning...";
 
@@ -12,7 +22,7 @@ async function scanFolder() {
         const res = await fetch("/api/scan", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ path })
+            body: JSON.stringify({ path: selectedPath })
         });
         const data = await res.json();
         if (!res.ok) return alert(data.detail || "Scan failed.");

@@ -2,6 +2,8 @@ import os
 import sys
 import webbrowser
 import threading
+import tkinter as tk
+from tkinter import filedialog
 
 # Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -74,6 +76,19 @@ async def resolve(req: ResolveRequest):
         return {"status": "ok", "file": req.file}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/browse")
+async def browse_folder():
+    """Open a native OS folder picker and return the selected path."""
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", True)
+    folder = filedialog.askdirectory(title="Select IFS Project Root")
+    root.destroy()
+    if not folder:
+        return {"path": None}
+    return {"path": folder}
 
 
 @app.get("/health")

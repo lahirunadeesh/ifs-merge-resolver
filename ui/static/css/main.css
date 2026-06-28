@@ -70,6 +70,25 @@ button {
 }
 button:hover { background: #0773c5; }
 
+/* ── Path display ── */
+.path-display {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #dfe6e9;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: monospace;
+    color: #b2bec3;
+    background: #f8f9fa;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.path-display.has-path { color: #2d3436; background: white; }
+
+button:disabled { background: #b2bec3; cursor: not-allowed; }
+button:disabled:hover { background: #b2bec3; }
+
 /* ── File list ── */
 #fileList { display: flex; flex-direction: column; gap: 6px; }
 
