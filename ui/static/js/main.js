@@ -97,7 +97,9 @@ function renderConflict() {
     const c = currentConflicts[currentIndex];
     document.getElementById("conflictCounter").textContent =
         `Conflict ${currentIndex + 1} of ${currentConflicts.length}`;
-    renderDiff(c.diff || []);
+    // If server diff is empty but content exists, build a client-side fallback diff
+    let diffData = c.diff && c.diff.length > 0 ? c.diff : buildFallbackDiff(c.local, c.repo);
+    renderDiff(diffData);
 
     // Show merged preview if both sides have content
     const previewPane = document.getElementById("previewPane");
@@ -203,6 +205,19 @@ async function confirmResolve() {
     } else {
         renderConflict();
     }
+}
+
+function buildFallbackDiff(local, repo) {
+    const result = [];
+    const localLines = (local || "").split("\n");
+    const repoLines  = (repo  || "").split("\n");
+    localLines.forEach((text, i) => {
+        result.push({ line_no_local: i + 1, line_no_repo: null, text, kind: "local" });
+    });
+    repoLines.forEach((text, i) => {
+        result.push({ line_no_local: null, line_no_repo: i + 1, text, kind: "repo" });
+    });
+    return result;
 }
 
 function renderDiff(diffLines) {

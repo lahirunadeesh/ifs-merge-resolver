@@ -79,6 +79,11 @@ def parse_conflicts(file_path: str) -> list[dict]:
             local_text = "".join(local_lines).rstrip()
             repo_text  = "".join(repo_lines).rstrip()
 
+            try:
+                diff = _build_diff(local_lines, repo_lines, start + 1)
+            except Exception:
+                diff = []
+
             conflicts.append({
                 "index":      len(conflicts),
                 "local":      local_text,
@@ -86,7 +91,7 @@ def parse_conflicts(file_path: str) -> list[dict]:
                 "start_line": start,
                 "end_line":   end,
                 "preview":    _smart_merge_preview(local_lines, repo_lines),
-                "diff":       _build_diff(local_lines, repo_lines, start + 1),
+                "diff":       diff,
             })
         i += 1
 
@@ -99,15 +104,27 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
     Each entry: { line_no_local, line_no_repo, text, kind }
     kind: 'local' (green) | 'repo' (red) | 'context' (shared)
     """
-    result = []
+    # Normalise: strip trailing newlines for comparison, keep originals for display
+    local_clean = [l.rstrip("\n") for l in local_lines]
+    repo_clean  = [l.rstrip("\n") for l in repo_lines]
+
+    # Edge cases: one side is empty
+    if not local_clean and not repo_clean:
+        return []
+    if not local_clean:
+        return [{"line_no_local": None, "line_no_repo": start_line + k,
+                 "text": repo_clean[k], "kind": "repo"}
+                for k in range(len(repo_clean))]
+    if not repo_clean:
+        return [{"line_no_local": start_line + k, "line_no_repo": None,
+                 "text": local_clean[k], "kind": "local"}
+                for k in range(len(local_clean))]
+
+    result   = []
     local_no = start_line
     repo_no  = start_line
 
-    matcher = difflib.SequenceMatcher(None,
-        [l.rstrip("\n") for l in local_lines],
-        [l.rstrip("\n") for l in repo_lines],
-        autojunk=False,
-    )
+    matcher = difflib.SequenceMatcher(None, local_clean, repo_clean, autojunk=False)
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
@@ -115,8 +132,8 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
                 result.append({
                     "line_no_local": local_no + k,
                     "line_no_repo":  repo_no  + k,
-                    "text":  local_lines[i1 + k].rstrip("\n"),
-                    "kind":  "context",
+                    "text": local_clean[i1 + k],
+                    "kind": "context",
                 })
             local_no += i2 - i1
             repo_no  += j2 - j1
@@ -126,8 +143,8 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
                 result.append({
                     "line_no_local": local_no + k,
                     "line_no_repo":  None,
-                    "text":  local_lines[i1 + k].rstrip("\n"),
-                    "kind":  "local",
+                    "text": local_clean[i1 + k],
+                    "kind": "local",
                 })
             local_no += i2 - i1
             if tag == "replace":
@@ -135,8 +152,8 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
                     result.append({
                         "line_no_local": None,
                         "line_no_repo":  repo_no + k,
-                        "text":  repo_lines[j1 + k].rstrip("\n"),
-                        "kind":  "repo",
+                        "text": repo_clean[j1 + k],
+                        "kind": "repo",
                     })
                 repo_no += j2 - j1
 
@@ -145,8 +162,8 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
                 result.append({
                     "line_no_local": None,
                     "line_no_repo":  repo_no + k,
-                    "text":  repo_lines[j1 + k].rstrip("\n"),
-                    "kind":  "repo",
+                    "text": repo_clean[j1 + k],
+                    "kind": "repo",
                 })
             repo_no += j2 - j1
 
