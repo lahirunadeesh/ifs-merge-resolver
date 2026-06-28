@@ -31,6 +31,10 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 @app.get("/")
+async def home(request: Request):
+    return templates.TemplateResponse("home.html", {"request": request})
+
+@app.get("/app")
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
@@ -177,7 +181,7 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static"
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def open_browser():
-    webbrowser.open("http://localhost:7845")
+    webbrowser.open("http://localhost:7845/")
 
 if __name__ == "__main__":
     threading.Timer(1.0, open_browser).start()

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFS Merge Conflict Resolver</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:       #0d1117;
+            --surface:  #161b22;
+            --border:   #30363d;
+            --green:    #3fb950;
+            --red:      #f85149;
+            --blue:     #58a6ff;
+            --purple:   #bc8cff;
+            --text:     #e6edf3;
+            --muted:    #8b949e;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            min-height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ── Canvas background ── */
+        #canvas { position: fixed; inset: 0; z-index: 0; }
+
+        /* ── Floating code fragments ── */
+        .code-fragment {
+            position: fixed;
+            font-family: "SF Mono", Menlo, monospace;
+            font-size: 11px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 1;
+            animation: floatUp linear infinite;
+        }
+
+        @keyframes floatUp {
+            0%   { opacity: 0;    transform: translateY(0)   scale(0.9); }
+            10%  { opacity: 0.18; }
+            90%  { opacity: 0.18; }
+            100% { opacity: 0;    transform: translateY(-80vh) scale(1.05); }
+        }
+
+        /* ── Main card ── */
+        .hero {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            padding: 0 24px;
+        }
+
+        /* ── Git branch icon ── */
+        .branch-icon {
+            width: 72px;
+            height: 72px;
+            margin-bottom: 28px;
+            animation: pulse 3s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%,100% { transform: scale(1);    filter: drop-shadow(0 0 8px #58a6ff55); }
+            50%      { transform: scale(1.06); filter: drop-shadow(0 0 20px #58a6ffaa); }
+        }
+
+        /* ── Product name ── */
+        .product-name {
+            font-size: clamp(28px, 5vw, 48px);
+            font-weight: 800;
+            letter-spacing: -1px;
+            line-height: 1.15;
+            margin-bottom: 6px;
+        }
+        .product-name span.ifs  { color: var(--blue); }
+        .product-name span.merge { color: var(--purple); }
+
+        /* ── Typewriter tagline ── */
+        .tagline {
+            font-size: clamp(14px, 2vw, 18px);
+            color: var(--muted);
+            margin-bottom: 36px;
+            min-height: 28px;
+            font-weight: 400;
+        }
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: var(--blue);
+            margin-left: 2px;
+            vertical-align: middle;
+            animation: blink 0.85s step-end infinite;
+        }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* ── Diff pill ── */
+        .diff-pills {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 44px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: "SF Mono", Menlo, monospace;
+            border: 1px solid;
+            animation: pillIn 0.5s ease both;
+        }
+        .pill.green { background: #1a2e1a; border-color: #2d5a2d; color: var(--green); }
+        .pill.red   { background: #2e1a1a; border-color: #5a2d2d; color: var(--red);   }
+        .pill.blue  { background: #1a1f2e; border-color: #2d3a5a; color: var(--blue);  }
+        @keyframes pillIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0);   }
+        }
+        .pill:nth-child(1) { animation-delay: 0.8s; }
+        .pill:nth-child(2) { animation-delay: 1.0s; }
+        .pill:nth-child(3) { animation-delay: 1.2s; }
+
+        /* ── Launch button ── */
+        .launch-btn {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 16px 40px;
+            background: var(--blue);
+            color: #0d1117;
+            font-size: 16px;
+            font-weight: 700;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            text-decoration: none;
+            letter-spacing: 0.3px;
+            transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+            box-shadow: 0 0 24px #58a6ff44;
+            animation: btnIn 0.5s ease 1.5s both;
+            overflow: hidden;
+        }
+        @keyframes btnIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .launch-btn::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent 0%, #ffffff33 50%, transparent 100%);
+            transform: translateX(-100%);
+            transition: transform 0.4s ease;
+        }
+        .launch-btn:hover { transform: translateY(-2px); box-shadow: 0 0 40px #58a6ff77; background: #79b8ff; }
+        .launch-btn:hover::before { transform: translateX(100%); }
+        .launch-btn:active { transform: translateY(0); }
+
+        .arrow {
+            font-size: 20px;
+            transition: transform 0.2s;
+        }
+        .launch-btn:hover .arrow { transform: translateX(4px); }
+
+        /* ── Conflict animation strip ── */
+        .conflict-strip {
+            margin-top: 52px;
+            width: min(600px, 90vw);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            overflow: hidden;
+            animation: btnIn 0.5s ease 1.7s both;
+        }
+        .strip-header {
+            padding: 8px 14px;
+            background: #1c2128;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .strip-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .strip-dot.r { background: #f85149; }
+        .strip-dot.y { background: #e3b341; }
+        .strip-dot.g { background: #3fb950; }
+
+        .strip-lines { padding: 10px 0; }
+        .strip-line {
+            display: flex;
+            align-items: baseline;
+            gap: 0;
+            font-family: "SF Mono", Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.8;
+            padding: 0 14px;
+            opacity: 0;
+            animation: lineIn 0.3s ease both;
+        }
+        .strip-line.ctx  { color: var(--muted); }
+        .strip-line.local { background: #1a2e1a; color: var(--green); }
+        .strip-line.repo  { background: #2e1a1a; color: var(--red); }
+        .strip-line.mark  { color: var(--muted); font-weight: 700; }
+        .lineno { width: 32px; text-align: right; margin-right: 16px; color: #3d444d; user-select: none; flex-shrink: 0; }
+        .sign   { width: 14px; flex-shrink: 0; }
+
+        @keyframes lineIn {
+            from { opacity: 0; transform: translateX(-6px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        .strip-line:nth-child(1)  { animation-delay: 2.0s; }
+        .strip-line:nth-child(2)  { animation-delay: 2.15s; }
+        .strip-line:nth-child(3)  { animation-delay: 2.3s; }
+        .strip-line:nth-child(4)  { animation-delay: 2.45s; }
+        .strip-line:nth-child(5)  { animation-delay: 2.6s; }
+        .strip-line:nth-child(6)  { animation-delay: 2.75s; }
+        .strip-line:nth-child(7)  { animation-delay: 2.9s; }
+
+        /* ── Footer ── */
+        footer {
+            position: fixed;
+            bottom: 24px;
+            z-index: 10;
+            text-align: center;
+            font-size: 12px;
+            color: var(--muted);
+            animation: btnIn 0.5s ease 2.2s both;
+        }
+        footer strong { color: var(--text); }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div class="hero">
+
+    <!-- Branch SVG icon -->
+    <svg class="branch-icon" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="7" stroke="#58a6ff" stroke-width="2.5"/>
+        <circle cx="18" cy="54" r="7" stroke="#3fb950" stroke-width="2.5"/>
+        <circle cx="54" cy="18" r="7" stroke="#bc8cff" stroke-width="2.5"/>
+        <line x1="18" y1="25" x2="18" y2="47" stroke="#58a6ff" stroke-width="2" stroke-dasharray="4 3"/>
+        <path d="M18 25 Q18 36 54 25" stroke="#bc8cff" stroke-width="2" fill="none" stroke-dasharray="4 3"/>
+        <circle cx="18" cy="18" r="3" fill="#58a6ff"/>
+        <circle cx="18" cy="54" r="3" fill="#3fb950"/>
+        <circle cx="54" cy="18" r="3" fill="#bc8cff"/>
+    </svg>
+
+    <div class="product-name">
+        <span class="ifs">IFS</span> <span class="merge">Merge</span> Resolver
+    </div>
+
+    <div class="tagline"><span id="typewriter"></span><span class="cursor"></span></div>
+
+    <div class="diff-pills">
+        <div class="pill green">+ .entity &nbsp; .projection</div>
+        <div class="pill red">− .ddlsource &nbsp; .plsql</div>
+        <div class="pill blue">⇄ .client &nbsp; .fragment</div>
+    </div>
+
+    <a href="/app" class="launch-btn">
+        Launch App <span class="arrow">→</span>
+    </a>
+
+    <!-- Animated conflict preview strip -->
+    <div class="conflict-strip">
+        <div class="strip-header">
+            <div class="strip-dot r"></div>
+            <div class="strip-dot y"></div>
+            <div class="strip-dot g"></div>
+            <span style="margin-left:6px;">CustomerOrder-Cust.projection</span>
+        </div>
+        <div class="strip-lines">
+            <div class="strip-line ctx">  <span class="lineno">61</span><span class="sign"> </span>@Override entity CustomerOrder {</div>
+            <div class="strip-line mark"> <span class="lineno">  </span><span class="sign"> </span>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</div>
+            <div class="strip-line local"><span class="lineno">62</span><span class="sign">+</span>&nbsp;&nbsp; attribute CustRefNo Text;</div>
+            <div class="strip-line mark"> <span class="lineno">  </span><span class="sign"> </span>=======</div>
+            <div class="strip-line repo"> <span class="lineno">62</span><span class="sign">−</span>&nbsp;&nbsp; attribute InternalPo Text;</div>
+            <div class="strip-line mark"> <span class="lineno">  </span><span class="sign"> </span>&gt;&gt;&gt;&gt;&gt;&gt;&gt; feature/po-field</div>
+            <div class="strip-line ctx">  <span class="lineno">63</span><span class="sign"> </span>}</div>
+        </div>
+    </div>
+
+</div>
+
+<footer>
+    &copy; <span id="year"></span> <strong>Lahiru Nadeesha Kalubowila</strong> &nbsp;·&nbsp; All rights reserved.
+</footer>
+
+<script>
+// ── Year ──────────────────────────────────────────────────────────────────────
+document.getElementById("year").textContent = new Date().getFullYear();
+
+// ── Typewriter ────────────────────────────────────────────────────────────────
+const phrases = [
+    "Resolve IFS merge conflicts intelligently.",
+    "Understands .entity and .projection structure.",
+    "Smart comment merging. Zero duplicates.",
+    "Built for IFS Cloud Edition developers.",
+];
+let pi = 0, ci = 0, deleting = false;
+const tw = document.getElementById("typewriter");
+
+function type() {
+    const phrase = phrases[pi];
+    if (!deleting) {
+        tw.textContent = phrase.slice(0, ++ci);
+        if (ci === phrase.length) { deleting = true; setTimeout(type, 2200); return; }
+        setTimeout(type, 42);
+    } else {
+        tw.textContent = phrase.slice(0, --ci);
+        if (ci === 0) { deleting = false; pi = (pi + 1) % phrases.length; setTimeout(type, 300); return; }
+        setTimeout(type, 22);
+    }
+}
+setTimeout(type, 500);
+
+// ── Particle canvas ───────────────────────────────────────────────────────────
+const canvas = document.getElementById("canvas");
+const ctx    = canvas.getContext("2d");
+
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
+window.addEventListener("resize", resize);
+
+const particles = [];
+const COLORS = ["#58a6ff", "#3fb950", "#bc8cff", "#f85149", "#e3b341"];
+
+for (let i = 0; i < 55; i++) {
+    particles.push({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        r: Math.random() * 1.8 + 0.4,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        alpha: Math.random() * 0.4 + 0.1,
+    });
+}
+
+function drawParticles() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw connections
+    for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[i].x - particles[j].x;
+            const dy = particles[i].y - particles[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 130) {
+                ctx.beginPath();
+                ctx.strokeStyle = particles[i].color;
+                ctx.globalAlpha = (1 - dist / 130) * 0.08;
+                ctx.lineWidth = 0.8;
+                ctx.moveTo(particles[i].x, particles[i].y);
+                ctx.lineTo(particles[j].x, particles[j].y);
+                ctx.stroke();
+            }
+        }
+    }
+
+    // Draw dots
+    particles.forEach(p => {
+        ctx.beginPath();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > canvas.width)  p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+    });
+
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(drawParticles);
+}
+drawParticles();
+
+// ── Floating code fragments ────────────────────────────────────────────────────
+const snippets = [
+    "attribute CustRefNo Text;",
+    "@Override entity CustomerOrder {",
+    "<<<<<<< HEAD",
+    ">>>>>>> feature/branch",
+    "=======",
+    "include fragment MyFragment;",
+    "entityset OrderSet for Order;",
+    "@CodeRegistration ADD_COLUMN",
+    "Database_SYS.Set_Column#(...)",
+    "projection CustomerOrderHandling;",
+    "layer Cust;",
+    "component ORDER;",
+    "attribute InternalPo Text;",
+    "-- 260507  LAHIRU  ME#001: Created",
+];
+
+const colorMap = {
+    "<<<<<<< HEAD": "#f85149",
+    "=======": "#e3b341",
+    ">>>>>>> feature/branch": "#3fb950",
+};
+
+function spawnFragment() {
+    const el  = document.createElement("div");
+    el.className = "code-fragment";
+    const snippet = snippets[Math.floor(Math.random() * snippets.length)];
+    el.textContent = snippet;
+    el.style.color  = colorMap[snippet] || COLORS[Math.floor(Math.random() * COLORS.length)];
+    el.style.left   = Math.random() * 90 + "%";
+    el.style.bottom = "-30px";
+    const dur = 14 + Math.random() * 14;
+    el.style.animationDuration  = dur + "s";
+    el.style.animationDelay     = Math.random() * -dur + "s";
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), (dur + 2) * 1000);
+}
+
+for (let i = 0; i < 18; i++) spawnFragment();
+setInterval(spawnFragment, 2200);
+</script>
+</body>
+</html>
