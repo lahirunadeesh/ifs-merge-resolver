@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import sys
 import platform
@@ -60,7 +61,7 @@ async def browse_folder():
     return {"path": folder}
 
 
-def _open_folder_dialog() -> str | None:
+def _open_folder_dialog():
     """Platform-specific native folder picker (no tkinter)."""
     system = platform.system()
 
