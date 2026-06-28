@@ -5,7 +5,6 @@ import threading
 import tkinter as tk
 from tkinter import filedialog
 
-# Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, HTTPException
@@ -21,7 +20,6 @@ app = FastAPI(title="IFS Merge Conflict Resolver")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static")), name="static")
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -49,6 +47,19 @@ class ResolveRequest(BaseModel):
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
+
+@app.get("/api/browse")
+async def browse_folder():
+    """Open a native OS folder picker and return the selected path."""
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", True)
+    folder = filedialog.askdirectory(title="Select IFS Project Root")
+    root.destroy()
+    if not folder:
+        return {"path": None}
+    return {"path": folder}
+
 
 @app.post("/api/scan")
 async def scan(req: ScanRequest):
@@ -78,22 +89,13 @@ async def resolve(req: ResolveRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/browse")
-async def browse_folder():
-    """Open a native OS folder picker and return the selected path."""
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes("-topmost", True)
-    folder = filedialog.askdirectory(title="Select IFS Project Root")
-    root.destroy()
-    if not folder:
-        return {"path": None}
-    return {"path": folder}
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ── Static files — must be mounted AFTER all API routes ──────────────────────
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static")), name="static")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
