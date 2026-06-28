@@ -6,6 +6,3 @@ venv/
 dist/
 build/
 .DS_Store
-
-# License key generator — contains secret, NEVER commit
-licensing/key_gen.py

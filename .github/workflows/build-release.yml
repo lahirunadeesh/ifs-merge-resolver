@@ -1,0 +1,69 @@
+name: Build & Release
+
+# Triggers when you publish a GitHub Release (e.g. v1.0.0)
+on:
+  release:
+    types: [published]
+
+jobs:
+
+  # ── macOS .app ──────────────────────────────────────────────────────────────
+  build-mac:
+    name: Build macOS App
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build .app
+        env:
+          IFS_LICENSE_SECRET: ${{ secrets.IFS_LICENSE_SECRET }}
+        run: pyinstaller build.spec
+
+      - name: Zip the .app bundle
+        run: |
+          cd dist
+          zip -r IFSMergeResolver-mac.zip IFSMergeResolver.app
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/IFSMergeResolver-mac.zip
+
+  # ── Windows .exe ─────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows Exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build .exe
+        env:
+          IFS_LICENSE_SECRET: ${{ secrets.IFS_LICENSE_SECRET }}
+        run: pyinstaller build.spec
+
+      - name: Zip the exe folder
+        run: |
+          cd dist
+          Compress-Archive -Path IFSMergeResolver -DestinationPath IFSMergeResolver-windows.zip
+        shell: pwsh
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/IFSMergeResolver-windows.zip
