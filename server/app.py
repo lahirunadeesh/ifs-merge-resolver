@@ -2,8 +2,12 @@ import os
 import sys
 import webbrowser
 import threading
+import asyncio
 import tkinter as tk
 from tkinter import filedialog
+from concurrent.futures import ThreadPoolExecutor
+
+_executor = ThreadPoolExecutor(max_workers=2)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -50,24 +54,30 @@ class ResolveRequest(BaseModel):
 
 @app.get("/api/browse")
 async def browse_folder():
-    """Open a native OS folder picker and return the selected path."""
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes("-topmost", True)
-    folder = filedialog.askdirectory(title="Select IFS Project Root")
-    root.destroy()
-    if not folder:
-        return {"path": None}
+    """Open native OS folder picker in a thread so it doesn't block the event loop."""
+    def _open_dialog():
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="Select IFS Project Root")
+        root.destroy()
+        return folder or None
+
+    loop = asyncio.get_event_loop()
+    folder = await loop.run_in_executor(_executor, _open_dialog)
     return {"path": folder}
 
 
 @app.post("/api/scan")
 async def scan(req: ScanRequest):
     try:
-        files = scan_for_conflicts(req.path)
+        loop = asyncio.get_event_loop()
+        files = await loop.run_in_executor(_executor, scan_for_conflicts, req.path)
         return {"files": files, "count": len(files)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/conflicts")

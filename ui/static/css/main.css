@@ -89,6 +89,29 @@ button:hover { background: #0773c5; }
 button:disabled { background: #b2bec3; cursor: not-allowed; }
 button:disabled:hover { background: #b2bec3; }
 
+/* ── Loader ── */
+.loader-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: white;
+    border-radius: 8px;
+    padding: 16px 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    font-size: 14px;
+    color: #636e72;
+}
+.loader-spinner {
+    width: 18px;
+    height: 18px;
+    border: 3px solid #dfe6e9;
+    border-top-color: #0984e3;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ── File list ── */
 #fileList { display: flex; flex-direction: column; gap: 6px; }
 

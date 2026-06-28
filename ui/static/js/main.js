@@ -13,10 +13,19 @@ async function browseFolder() {
     document.getElementById("scanBtn").disabled = false;
 }
 
+function setLoader(visible, text) {
+    const loader = document.getElementById("scanLoader");
+    loader.style.display = visible ? "flex" : "none";
+    if (text) document.getElementById("loaderText").textContent = text;
+}
+
 async function scanFolder() {
     if (!selectedPath) return;
 
-    document.getElementById("scanBtn").textContent = "Scanning...";
+    document.getElementById("scanBtn").disabled = true;
+    document.getElementById("results").style.display = "none";
+    document.getElementById("resolver").style.display = "none";
+    setLoader(true, "Scanning for conflict files…");
 
     try {
         const res = await fetch("/api/scan", {
@@ -25,10 +34,16 @@ async function scanFolder() {
             body: JSON.stringify({ path: selectedPath })
         });
         const data = await res.json();
-        if (!res.ok) return alert(data.detail || "Scan failed.");
+        if (!res.ok) {
+            setLoader(false);
+            return alert(data.detail || "Scan failed.");
+        }
         renderFileList(data.files);
+    } catch (err) {
+        alert("Scan error: " + err.message);
     } finally {
-        document.getElementById("scanBtn").textContent = "Scan for Conflicts";
+        setLoader(false);
+        document.getElementById("scanBtn").disabled = false;
     }
 }
 
@@ -54,11 +69,13 @@ function renderFileList(files) {
 }
 
 async function loadFile(filePath, relativePath) {
+    setLoader(true, `Loading conflicts for ${relativePath}…`);
     const res = await fetch("/api/conflicts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file: filePath })
     });
+    setLoader(false);
     const data = await res.json();
     if (!res.ok) return alert(data.detail || "Failed to load file.");
 
