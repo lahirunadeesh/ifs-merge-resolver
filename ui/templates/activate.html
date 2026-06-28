@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activate — IFS Merge Conflict Resolver</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0d1117;
+            color: #e6edf3;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 14px;
+            padding: 40px 44px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 8px 40px #00000066;
+        }
+        .logo {
+            font-size: 22px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .logo .ifs   { color: #58a6ff; }
+        .logo .merge { color: #bc8cff; }
+        .subtitle {
+            color: #8b949e;
+            font-size: 13px;
+            margin-bottom: 32px;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            margin-bottom: 6px;
+        }
+        .device-box {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-family: "SF Mono", Menlo, monospace;
+            font-size: 15px;
+            letter-spacing: 2px;
+            color: #58a6ff;
+            margin-bottom: 6px;
+            user-select: all;
+        }
+        .hint {
+            font-size: 11px;
+            color: #8b949e;
+            margin-bottom: 28px;
+        }
+        input[type="text"] {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-family: "SF Mono", Menlo, monospace;
+            font-size: 15px;
+            letter-spacing: 2px;
+            color: #e6edf3;
+            outline: none;
+            transition: border-color .15s;
+            margin-bottom: 6px;
+        }
+        input[type="text"]:focus { border-color: #58a6ff; }
+        input[type="text"]::placeholder { color: #3d444d; letter-spacing: 1px; }
+        .error-msg {
+            font-size: 12px;
+            color: #f85149;
+            min-height: 18px;
+            margin-bottom: 20px;
+        }
+        .success-msg {
+            font-size: 12px;
+            color: #3fb950;
+            min-height: 18px;
+            margin-bottom: 20px;
+        }
+        button {
+            width: 100%;
+            background: #58a6ff;
+            color: #0d1117;
+            border: none;
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background .15s, transform .1s;
+        }
+        button:hover { background: #79b8ff; transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+        button:disabled { background: #30363d; color: #8b949e; cursor: default; transform: none; }
+        footer {
+            margin-top: 32px;
+            font-size: 11px;
+            color: #3d444d;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="logo"><span class="ifs">IFS</span> <span class="merge">Merge</span> Resolver</div>
+    <div class="subtitle">This copy requires a license key tied to your machine.</div>
+
+    <label>Your Device ID</label>
+    <div class="device-box" id="deviceId">Loading…</div>
+    <div class="hint">Send this ID to <strong>kalubowila94@gmail.com</strong> to receive your license key.</div>
+
+    <label>License Key</label>
+    <input type="text" id="licenseKey" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" maxlength="24"
+           oninput="formatKey(this)" onkeydown="onEnter(event)" />
+    <div id="msg" class="error-msg"></div>
+
+    <button id="activateBtn" onclick="activate()">Activate</button>
+</div>
+<footer>© Lahiru Nadeesha Kalubowila · All rights reserved</footer>
+
+<script>
+async function loadDeviceId() {
+    const res  = await fetch("/api/device-id");
+    const data = await res.json();
+    document.getElementById("deviceId").textContent = data.device_id;
+}
+loadDeviceId();
+
+function formatKey(input) {
+    let val = input.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    let parts = [];
+    for (let i = 0; i < val.length && i < 20; i += 4) parts.push(val.slice(i, i+4));
+    input.value = parts.join("-");
+}
+
+function onEnter(e) { if (e.key === "Enter") activate(); }
+
+async function activate() {
+    const key = document.getElementById("licenseKey").value.trim();
+    const msg = document.getElementById("msg");
+    const btn = document.getElementById("activateBtn");
+    if (!key) { msg.className = "error-msg"; msg.textContent = "Please enter your license key."; return; }
+    btn.disabled = true;
+    btn.textContent = "Activating…";
+    const res  = await fetch("/api/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ license_key: key })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+        msg.className = "success-msg";
+        msg.textContent = "✓ " + data.message;
+        btn.textContent = "Launching…";
+        setTimeout(() => { window.location.href = "/"; }, 1200);
+    } else {
+        msg.className = "error-msg";
+        msg.textContent = "✕ " + (data.detail || data.message || "Activation failed.");
+        btn.disabled = false;
+        btn.textContent = "Activate";
+    }
+}
+</script>
+</body>
+</html>

@@ -21,6 +21,8 @@ import uvicorn
 
 from core.conflict_scanner import scan_for_conflicts, parse_conflicts, apply_resolution
 from core.project_store import list_projects, add_project, delete_project, rename_project
+from licensing.machine_id import get_machine_id
+from licensing.validator import is_licensed, activate as do_activate
 
 app = FastAPI(title="IFS Merge Conflict Resolver")
 
@@ -32,11 +34,19 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
 
 @app.get("/")
 async def home(request: Request):
+    if not is_licensed():
+        return templates.TemplateResponse("activate.html", {"request": request})
     return templates.TemplateResponse("home.html", {"request": request})
 
 @app.get("/app")
 async def index(request: Request):
+    if not is_licensed():
+        return templates.TemplateResponse("activate.html", {"request": request})
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/activate")
+async def activate_page(request: Request):
+    return templates.TemplateResponse("activate.html", {"request": request})
 
 
 # ── API models ────────────────────────────────────────────────────────────────
@@ -61,6 +71,9 @@ class SaveProjectRequest(BaseModel):
 
 class RenameProjectRequest(BaseModel):
     name: str
+
+class ActivateRequest(BaseModel):
+    license_key: str
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
@@ -168,6 +181,17 @@ async def update_project(project_id: str, req: RenameProjectRequest):
         raise HTTPException(status_code=404, detail="Project not found.")
     return {"status": "renamed"}
 
+
+@app.get("/api/device-id")
+async def device_id():
+    return {"device_id": get_machine_id()}
+
+@app.post("/api/activate")
+async def activate(req: ActivateRequest):
+    success, message = do_activate(req.license_key)
+    if not success:
+        raise HTTPException(status_code=403, detail=message)
+    return {"success": True, "message": message}
 
 @app.get("/health")
 async def health():
