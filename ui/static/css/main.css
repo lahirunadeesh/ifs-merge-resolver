@@ -89,6 +89,42 @@ button:hover { background: #0773c5; }
 button:disabled { background: #b2bec3; cursor: not-allowed; }
 button:disabled:hover { background: #b2bec3; }
 
+/* ── Scan notification ── */
+.scan-notification {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+    animation: slideDown 0.25s ease;
+}
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.notif-success { background: #e6fff5; color: #00695c; border: 1px solid #00b894; }
+.notif-error   { background: #fff0f0; color: #c0392b; border: 1px solid #d63031; }
+.notif-info    { background: #f0f4ff; color: #2d4a9e; border: 1px solid #6c7fdb; }
+
+.notif-icon { font-size: 16px; font-weight: 700; flex-shrink: 0; }
+
+.notif-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.6;
+    padding: 0 4px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.notif-close:hover { opacity: 1; background: none; }
+
 /* ── Loader ── */
 .loader-bar {
     display: flex;

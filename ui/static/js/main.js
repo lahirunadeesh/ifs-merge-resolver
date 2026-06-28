@@ -39,11 +39,45 @@ async function scanFolder() {
             return alert(data.detail || "Scan failed.");
         }
         renderFileList(data.files);
+        showScanResult(data.files.length);
     } catch (err) {
-        alert("Scan error: " + err.message);
+        showNotification("Scan failed: " + err.message, "error");
     } finally {
         setLoader(false);
         document.getElementById("scanBtn").disabled = false;
+    }
+}
+
+function showScanResult(count) {
+    if (count === 0) {
+        showNotification("No conflict files found in the selected folder.", "info");
+    } else {
+        showNotification(
+            `Found ${count} file${count === 1 ? "" : "s"} with merge conflicts. Click a file to start resolving.`,
+            "success"
+        );
+    }
+}
+
+function showNotification(message, type) {
+    // Remove any existing notification
+    const existing = document.getElementById("scanNotification");
+    if (existing) existing.remove();
+
+    const icons = { success: "✓", error: "✕", info: "ℹ" };
+
+    const el = document.createElement("div");
+    el.id = "scanNotification";
+    el.className = `scan-notification notif-${type}`;
+    el.innerHTML = `<span class="notif-icon">${icons[type] || "ℹ"}</span><span>${message}</span><button class="notif-close" onclick="this.parentElement.remove()">×</button>`;
+
+    // Insert after the setup section
+    const setup = document.getElementById("setup");
+    setup.parentNode.insertBefore(el, setup.nextSibling);
+
+    // Auto-dismiss after 6 seconds for success/info
+    if (type !== "error") {
+        setTimeout(() => el && el.remove(), 6000);
     }
 }
 
