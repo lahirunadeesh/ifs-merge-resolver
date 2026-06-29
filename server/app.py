@@ -108,16 +108,20 @@ def _open_folder_dialog():
         return path if path else None
 
     elif system == "Windows":
-        import ctypes
-        import ctypes.wintypes
-        BFFM_INITIALIZED = 1
-        shell32 = ctypes.windll.shell32
-        buf = ctypes.create_unicode_buffer(256)
-        bi = ctypes.create_string_buffer(76)
-        result = shell32.SHGetPathFromIDListW(
-            shell32.SHBrowseForFolderW(ctypes.byref(bi)), buf
+        # Use PowerShell folder picker — reliable on all Windows versions
+        ps_script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$dlg.Description = 'Select IFS Project Root';"
+            "$dlg.ShowNewFolderButton = $false;"
+            "if ($dlg.ShowDialog() -eq 'OK') { $dlg.SelectedPath }"
         )
-        return buf.value if result else None
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, text=True
+        )
+        path = result.stdout.strip()
+        return path if path else None
 
     else:
         # Linux fallback: zenity
@@ -210,8 +214,16 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static"
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def open_browser():
+    import urllib.request
+    import time
+    for _ in range(30):
+        try:
+            urllib.request.urlopen("http://127.0.0.1:7845/health")
+            break
+        except Exception:
+            time.sleep(0.5)
     webbrowser.open("http://localhost:7845/")
 
 if __name__ == "__main__":
-    threading.Timer(1.0, open_browser).start()
+    threading.Thread(target=open_browser, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=7845, log_config=None)
