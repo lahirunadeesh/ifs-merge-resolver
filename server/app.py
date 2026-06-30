@@ -9,6 +9,7 @@ import asyncio
 import urllib.request
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 _executor = ThreadPoolExecutor(max_workers=2)
 
@@ -242,8 +243,27 @@ def _wait_and_open_browser():
     _open_browser()
 
 
+def _show_error(msg: str):
+    """Show a native error dialog on Windows, print on other platforms."""
+    if platform.system() == "Windows":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, msg, "IFS Merge Resolver — Error", 0x10)
+    else:
+        print("ERROR:", msg)
+
+
 def _start_server():
-    uvicorn.run(app, host="127.0.0.1", port=7845, log_config=None)
+    log_file = Path.home() / "ifs_merge_resolver.log"
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=7845, log_config=None)
+    except Exception as e:
+        import traceback
+        err = traceback.format_exc()
+        log_file.write_text(err)
+        _show_error(
+            f"Server failed to start.\n\n{e}\n\nSee log: {log_file}"
+        )
+        os._exit(1)
 
 
 def _make_tray_icon():

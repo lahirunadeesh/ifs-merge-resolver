@@ -65,7 +65,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,   # no terminal window on launch
+    console=True,    # show console for debugging — set False for final release
     icon='ui/static/icon.ico',  # Windows .ico / Mac falls back to icns below
 )
 
