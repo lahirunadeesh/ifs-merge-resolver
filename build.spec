@@ -15,8 +15,8 @@ a = Analysis(
     pathex=['.'],
     binaries=[],
     datas=[
-        ('ui/templates', 'ui/templates'),
-        ('ui/static',    'ui/static'),
+        ('ui/templates',   'ui/templates'),
+        ('ui/static',      'ui/static'),
     ],
     hiddenimports=[
         'uvicorn.logging',
@@ -66,7 +66,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,   # no terminal window on launch
-    icon=None,       # add icon path here e.g. 'ui/static/icon.icns'
+    icon='ui/static/icon.ico',  # Windows .ico / Mac falls back to icns below
 )
 
 coll = COLLECT(
@@ -84,7 +84,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='IFSMergeResolver.app',
-    icon=None,       # add 'ui/static/icon.icns' here
+    icon='ui/static/icon.icns',
     bundle_identifier='com.lahirunadeesh.ifsmerge',
     info_plist={
         'NSHighResolutionCapable': True,

@@ -232,17 +232,17 @@ def _start_server():
 
 
 def _make_tray_icon():
-    """Create a simple coloured icon image for the system tray."""
-    from PIL import Image, ImageDraw
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    # Blue circle background
-    draw.ellipse([4, 4, 60, 60], fill=(88, 166, 255, 255))
-    # White "M" for Merge
-    draw.rectangle([14, 16, 22, 48], fill="white")
-    draw.rectangle([42, 16, 50, 48], fill="white")
-    draw.polygon([(14, 16), (32, 36), (50, 16)], fill="white")
-    return img
+    """Load the app icon for the system tray."""
+    from PIL import Image
+    icon_path = os.path.join(BASE_DIR, "ui", "static", "icon.png")
+    try:
+        return Image.open(icon_path).resize((64, 64), Image.LANCZOS)
+    except Exception:
+        # Fallback: simple blue circle
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        from PIL import ImageDraw
+        ImageDraw.Draw(img).ellipse([4, 4, 60, 60], fill=(88, 166, 255, 255))
+        return img
 
 
 if __name__ == "__main__":
