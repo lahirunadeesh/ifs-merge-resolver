@@ -22,155 +22,243 @@
             border: 1px solid #30363d;
             border-radius: 14px;
             padding: 40px 44px;
-            max-width: 480px;
+            max-width: 500px;
             width: 100%;
             box-shadow: 0 8px 40px #00000066;
         }
-        .logo {
-            font-size: 22px;
-            font-weight: 800;
-            margin-bottom: 6px;
-        }
+        .logo { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
         .logo .ifs   { color: #58a6ff; }
         .logo .merge { color: #bc8cff; }
-        .subtitle {
-            color: #8b949e;
-            font-size: 13px;
-            margin-bottom: 32px;
-        }
-        label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: #8b949e;
-            text-transform: uppercase;
-            letter-spacing: .5px;
-            margin-bottom: 6px;
-        }
-        .device-box {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 10px 14px;
-            font-family: "SF Mono", Menlo, monospace;
-            font-size: 15px;
-            letter-spacing: 2px;
-            color: #58a6ff;
-            margin-bottom: 6px;
-            user-select: all;
-        }
-        .hint {
-            font-size: 11px;
-            color: #8b949e;
-            margin-bottom: 28px;
-        }
-        input[type="text"] {
-            width: 100%;
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 12px 14px;
-            font-family: "SF Mono", Menlo, monospace;
-            font-size: 15px;
-            letter-spacing: 2px;
-            color: #e6edf3;
-            outline: none;
+        .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 28px; }
+
+        /* ── Trial banner ── */
+        .trial-banner {
+            background: linear-gradient(135deg, #1c2a1c, #0d2818);
+            border: 1px solid #238636;
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            cursor: pointer;
             transition: border-color .15s;
-            margin-bottom: 6px;
         }
+        .trial-banner:hover { border-color: #3fb950; }
+        .trial-icon { font-size: 28px; flex-shrink: 0; }
+        .trial-title { font-size: 13px; font-weight: 700; color: #3fb950; margin-bottom: 2px; }
+        .trial-desc  { font-size: 12px; color: #8b949e; }
+        .trial-key-box {
+            background: #0d1117;
+            border: 1px solid #238636;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-family: monospace;
+            font-size: 13px;
+            letter-spacing: 1px;
+            color: #3fb950;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .copy-btn {
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .copy-btn:hover { background: #2ea043; }
+
+        /* ── Status badge (shown when already licensed) ── */
+        .status-box {
+            border-radius: 10px;
+            padding: 14px 18px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .status-box.trial { background: #1c2a1c; border: 1px solid #238636; }
+        .status-box.full  { background: #0d1c2e; border: 1px solid #1f6feb; }
+        .status-box.expired { background: #2a1010; border: 1px solid #da3633; }
+        .status-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+        .status-box.trial .status-title   { color: #3fb950; }
+        .status-box.full  .status-title   { color: #58a6ff; }
+        .status-box.expired .status-title { color: #f85149; }
+        .status-desc { font-size: 12px; color: #8b949e; }
+
+        /* ── Divider ── */
+        .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #3d444d; font-size: 12px; }
+        .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid #30363d; }
+
+        label { display: block; font-size: 12px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+        .device-box { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; font-family: monospace; font-size: 15px; letter-spacing: 2px; color: #58a6ff; margin-bottom: 6px; user-select: all; }
+        .hint { font-size: 11px; color: #8b949e; margin-bottom: 20px; }
+
+        input[type="text"] { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px; font-family: monospace; font-size: 15px; letter-spacing: 2px; color: #e6edf3; outline: none; transition: border-color .15s; margin-bottom: 6px; }
         input[type="text"]:focus { border-color: #58a6ff; }
         input[type="text"]::placeholder { color: #3d444d; letter-spacing: 1px; }
-        .error-msg {
-            font-size: 12px;
-            color: #f85149;
-            min-height: 18px;
-            margin-bottom: 20px;
-        }
-        .success-msg {
-            font-size: 12px;
-            color: #3fb950;
-            min-height: 18px;
-            margin-bottom: 20px;
-        }
-        button {
-            width: 100%;
-            background: #58a6ff;
-            color: #0d1117;
-            border: none;
-            border-radius: 8px;
-            padding: 14px;
-            font-size: 15px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: background .15s, transform .1s;
-        }
-        button:hover { background: #79b8ff; transform: translateY(-1px); }
-        button:active { transform: translateY(0); }
-        button:disabled { background: #30363d; color: #8b949e; cursor: default; transform: none; }
-        footer {
-            margin-top: 32px;
-            font-size: 11px;
-            color: #3d444d;
-            text-align: center;
-        }
+
+        .msg { font-size: 12px; min-height: 18px; margin-bottom: 16px; }
+        .msg.error   { color: #f85149; }
+        .msg.success { color: #3fb950; }
+
+        button.primary { width: 100%; background: #58a6ff; color: #0d1117; border: none; border-radius: 8px; padding: 13px; font-size: 15px; font-weight: 700; cursor: pointer; transition: background .15s, transform .1s; }
+        button.primary:hover { background: #79b8ff; transform: translateY(-1px); }
+        button.primary:active { transform: translateY(0); }
+        button.primary:disabled { background: #30363d; color: #8b949e; cursor: default; transform: none; }
+
+        .open-btn { display: none; width: 100%; background: #238636; color: #fff; border: none; border-radius: 8px; padding: 13px; font-size: 15px; font-weight: 700; cursor: pointer; transition: background .15s; margin-top: 10px; }
+        .open-btn:hover { background: #2ea043; }
+
+        footer { margin-top: 28px; font-size: 11px; color: #3d444d; text-align: center; }
     </style>
 </head>
 <body>
 <div class="card">
     <div class="logo"><span class="ifs">IFS</span> <span class="merge">Merge</span> Resolver</div>
-    <div class="subtitle">This copy requires a license key tied to your machine.</div>
+    <div class="subtitle">Activate your copy to get started.</div>
 
+    <!-- Status box (shown when already licensed) -->
+    <div class="status-box" id="statusBox">
+        <div class="status-title" id="statusTitle"></div>
+        <div class="status-desc"  id="statusDesc"></div>
+    </div>
+
+    <!-- 30-day trial banner -->
+    <div class="trial-banner" onclick="useTrial()">
+        <div class="trial-icon">🚀</div>
+        <div>
+            <div class="trial-title">Start 30-Day Free Trial</div>
+            <div class="trial-desc">No machine lock. Click to auto-fill the trial key below.</div>
+            <div class="trial-key-box">
+                <span id="trialKeyDisplay">FC0F-1C03-1F83-46A7-80FD</span>
+                <button class="copy-btn" onclick="copyTrial(event)">Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="divider">or enter a full license key</div>
+
+    <!-- Device ID -->
     <label>Your Device ID</label>
     <div class="device-box" id="deviceId">Loading…</div>
-    <div class="hint">Send this ID to <strong>kalubowila94@gmail.com</strong> to receive your license key.</div>
+    <div class="hint">Send this ID to <strong>kalubowila94@gmail.com</strong> for a permanent license key.</div>
 
+    <!-- Key input -->
     <label>License Key</label>
     <input type="text" id="licenseKey" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" maxlength="24"
-           oninput="formatKey(this)" onkeydown="onEnter(event)" />
-    <div id="msg" class="error-msg"></div>
+           oninput="formatKey(this)" onkeydown="if(event.key==='Enter') activate()" />
+    <div class="msg" id="msg"></div>
 
-    <button id="activateBtn" onclick="activate()">Activate</button>
+    <button class="primary" id="activateBtn" onclick="activate()">Activate</button>
+    <button class="open-btn" id="openBtn" onclick="window.location.href='/'">Open IFS Merge Resolver →</button>
 </div>
 <footer>© Lahiru Nadeesha Kalubowila · All rights reserved</footer>
 
 <script>
-async function loadDeviceId() {
+const TRIAL_KEY = "FC0F-1C03-1F83-46A7-80FD";
+
+async function init() {
+    // Load device ID
     const res  = await fetch("/api/device-id");
     const data = await res.json();
     document.getElementById("deviceId").textContent = data.device_id;
+
+    // Check current license status
+    const sr   = await fetch("/api/license-status");
+    const s    = await sr.json();
+    showStatus(s);
 }
-loadDeviceId();
+init();
+
+function showStatus(s) {
+    const box   = document.getElementById("statusBox");
+    const title = document.getElementById("statusTitle");
+    const desc  = document.getElementById("statusDesc");
+    const btn   = document.getElementById("openBtn");
+
+    if (s.type === "full") {
+        box.className = "status-box full";
+        title.textContent = "✓ Fully Licensed";
+        desc.textContent  = "This machine is permanently activated.";
+        box.style.display = "block";
+        btn.style.display = "block";
+    } else if (s.type === "trial" && !s.expired) {
+        box.className = "status-box trial";
+        title.textContent = `✓ Trial Active — ${s.days_left} day${s.days_left !== 1 ? "s" : ""} remaining`;
+        desc.textContent  = "Upgrade to a full license for permanent access.";
+        box.style.display = "block";
+        btn.style.display = "block";
+    } else if (s.type === "trial" && s.expired) {
+        box.className = "status-box expired";
+        title.textContent = "✕ Trial Expired";
+        desc.textContent  = "Your 30-day trial has ended. Enter a full license key to continue.";
+        box.style.display = "block";
+    }
+}
+
+function useTrial() {
+    document.getElementById("licenseKey").value = TRIAL_KEY;
+    setMsg("", "");
+}
+
+function copyTrial(e) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(TRIAL_KEY).then(() => {
+        document.querySelector(".copy-btn").textContent = "Copied!";
+        setTimeout(() => document.querySelector(".copy-btn").textContent = "Copy", 1500);
+    });
+}
 
 function formatKey(input) {
     let val = input.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     let parts = [];
-    for (let i = 0; i < val.length && i < 20; i += 4) parts.push(val.slice(i, i+4));
+    for (let i = 0; i < val.length && i < 20; i += 4) parts.push(val.slice(i, i + 4));
     input.value = parts.join("-");
 }
 
-function onEnter(e) { if (e.key === "Enter") activate(); }
+function setMsg(text, type) {
+    const el = document.getElementById("msg");
+    el.textContent = text;
+    el.className = "msg" + (type ? " " + type : "");
+}
 
 async function activate() {
     const key = document.getElementById("licenseKey").value.trim();
-    const msg = document.getElementById("msg");
     const btn = document.getElementById("activateBtn");
-    if (!key) { msg.className = "error-msg"; msg.textContent = "Please enter your license key."; return; }
+    if (!key) { setMsg("Please enter a license key.", "error"); return; }
+
     btn.disabled = true;
     btn.textContent = "Activating…";
-    const res  = await fetch("/api/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ license_key: key })
-    });
-    const data = await res.json();
-    if (res.ok && data.success) {
-        msg.className = "success-msg";
-        msg.textContent = "✓ " + data.message;
-        btn.textContent = "Launching…";
-        setTimeout(() => { window.location.href = "/"; }, 1200);
-    } else {
-        msg.className = "error-msg";
-        msg.textContent = "✕ " + (data.detail || data.message || "Activation failed.");
+    setMsg("", "");
+
+    try {
+        const res  = await fetch("/api/activate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ license_key: key })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            setMsg("✓ " + data.message, "success");
+            btn.textContent = "Activated!";
+            document.getElementById("openBtn").style.display = "block";
+            // Refresh status badge
+            const sr = await fetch("/api/license-status");
+            showStatus(await sr.json());
+        } else {
+            setMsg("✕ " + (data.detail || "Activation failed."), "error");
+            btn.disabled = false;
+            btn.textContent = "Activate";
+        }
+    } catch (e) {
+        setMsg("✕ Network error. Is the app running?", "error");
         btn.disabled = false;
         btn.textContent = "Activate";
     }

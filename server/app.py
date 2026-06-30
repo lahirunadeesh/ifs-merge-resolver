@@ -24,7 +24,7 @@ import uvicorn
 from core.conflict_scanner import scan_for_conflicts, parse_conflicts, apply_resolution
 from core.project_store import list_projects, add_project, delete_project, rename_project
 from licensing.machine_id import get_machine_id
-from licensing.validator import is_licensed, activate as do_activate
+from licensing.validator import is_licensed, activate as do_activate, license_status
 
 app = FastAPI(title="IFS Merge Conflict Resolver")
 
@@ -199,12 +199,16 @@ async def update_project(project_id: str, req: RenameProjectRequest):
 async def device_id():
     return {"device_id": get_machine_id()}
 
+@app.get("/api/license-status")
+async def get_license_status():
+    return license_status()
+
 @app.post("/api/activate")
 async def activate(req: ActivateRequest):
-    success, message = do_activate(req.license_key)
+    success, message, kind = do_activate(req.license_key)
     if not success:
         raise HTTPException(status_code=403, detail=message)
-    return {"success": True, "message": message}
+    return {"success": True, "message": message, "type": kind}
 
 @app.get("/health")
 async def health():
