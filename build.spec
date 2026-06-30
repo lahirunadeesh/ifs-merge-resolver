@@ -65,7 +65,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,    # show console for debugging — set False for final release
+    console=False,   # no console window — errors now logged to ~/ifs_merge_resolver.log
     icon='ui/static/icon.ico',  # Windows .ico / Mac falls back to icns below
 )
 
