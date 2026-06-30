@@ -221,14 +221,25 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static"
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+URL = "http://localhost:7845/"
+
+
+def _open_browser():
+    """Open browser — use subprocess on Windows for reliability inside frozen app."""
+    if platform.system() == "Windows":
+        subprocess.Popen(["cmd", "/c", "start", "", URL], shell=False)
+    else:
+        webbrowser.open(URL)
+
+
 def _wait_and_open_browser():
-    for _ in range(40):
+    for _ in range(60):
         try:
             urllib.request.urlopen("http://127.0.0.1:7845/health")
             break
         except Exception:
             time.sleep(0.5)
-    webbrowser.open("http://localhost:7845/")
+    _open_browser()
 
 
 def _start_server():
@@ -236,13 +247,11 @@ def _start_server():
 
 
 def _make_tray_icon():
-    """Load the app icon for the system tray."""
     from PIL import Image
     icon_path = os.path.join(BASE_DIR, "ui", "static", "icon.png")
     try:
         return Image.open(icon_path).resize((64, 64), Image.LANCZOS)
     except Exception:
-        # Fallback: simple blue circle
         img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         from PIL import ImageDraw
         ImageDraw.Draw(img).ellipse([4, 4, 60, 60], fill=(88, 166, 255, 255))
@@ -265,7 +274,7 @@ if __name__ == "__main__":
         icon_image = _make_tray_icon()
 
         def on_open(icon, item):
-            webbrowser.open("http://localhost:7845/")
+            threading.Thread(target=_open_browser, daemon=True).start()
 
         def on_quit(icon, item):
             icon.stop()
@@ -280,7 +289,6 @@ if __name__ == "__main__":
                 pystray.MenuItem("Quit", on_quit),
             )
         )
-        tray.run()   # blocks — keeps the process alive
+        tray.run()
     except Exception:
-        # Fallback if pystray unavailable: just keep the server running
         server_thread.join()
