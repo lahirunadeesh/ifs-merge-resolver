@@ -282,19 +282,133 @@ def _merge_comment_blocks(local: list[str], repo: list[str]) -> list[str]:
     return result
 
 
+BLOCK_OPEN_RE  = re.compile(r'\{\s*$')
+BLOCK_CLOSE_RE = re.compile(r'^\s*\}\s*;?\s*$')
+
+
+def _parse_block_tree(lines: list[str]) -> list[dict]:
+    """
+    Parse a flat list of code lines into a tree of brace-delimited blocks:
+      {'type': 'block', 'header': line, 'children': [...], 'footer': line|None}
+      {'type': 'line',  'text': line}
+    A block's footer is None if its closing brace falls outside this
+    slice of lines (e.g. the conflict hunk didn't include it) — in that
+    case we must never invent a synthetic '}' when rendering back out,
+    since the real one already exists later in the file.
+    """
+    root: dict = {"children": []}
+    stack = [root]
+
+    for line in lines:
+        stripped = line.rstrip("\n")
+        if BLOCK_CLOSE_RE.match(stripped) and len(stack) > 1:
+            block = stack.pop()
+            block["footer"] = line
+            stack[-1]["children"].append(block)
+        elif BLOCK_OPEN_RE.search(stripped):
+            stack.append({"type": "block", "header": line, "children": [], "footer": None})
+        else:
+            stack[-1]["children"].append({"type": "line", "text": line})
+
+    # Any still-open blocks had their closing brace outside this slice —
+    # flush them up with footer=None so we don't fabricate one later.
+    while len(stack) > 1:
+        block = stack.pop()
+        stack[-1]["children"].append(block)
+
+    return root["children"]
+
+
+def _render_block_tree(items: list[dict]) -> list[str]:
+    out = []
+    for item in items:
+        if item.get("type") == "block":
+            out.append(item["header"])
+            out.extend(_render_block_tree(item["children"]))
+            if item.get("footer") is not None:
+                out.append(item["footer"])
+        else:
+            out.append(item["text"])
+    return out
+
+
+def _block_key(item: dict) -> str | None:
+    if item.get("type") == "block":
+        return item["header"].strip()
+    return None
+
+
+def _merge_block_trees(local_items: list[dict], repo_items: list[dict]) -> list[dict]:
+    """
+    Structural merge: walk repo's items and either merge them into the
+    matching local block (same header text, merged recursively) or, if
+    no match exists, append them as genuinely new content. Local's order
+    and brace structure is otherwise left untouched.
+    """
+    local_blocks_by_key = {
+        _block_key(it): it for it in local_items if it.get("type") == "block"
+    }
+    local_line_texts = {
+        it["text"].strip() for it in local_items
+        if it.get("type") == "line" and it["text"].strip()
+    }
+
+    merged = list(local_items)
+    extra: list[dict] = []
+
+    for item in repo_items:
+        if item.get("type") == "block":
+            key = _block_key(item)
+            match = local_blocks_by_key.get(key)
+            if match is not None:
+                match["children"] = _merge_block_trees(match["children"], item["children"])
+                if match.get("footer") is None and item.get("footer") is not None:
+                    match["footer"] = item["footer"]
+            else:
+                extra.append(item)
+        else:
+            text = item["text"].strip()
+            if text and text not in local_line_texts:
+                extra.append(item)
+            elif not text:
+                # blank lines: keep, harmless and helps readability
+                extra.append(item)
+
+    merged.extend(extra)
+    return merged
+
+
 def _merge_code_lines(local: list[str], repo: list[str]) -> list[str]:
     """
-    Combine code lines from both sides: local lines followed by repo lines.
+    Combine code lines from both sides using a structural (brace-tree) merge:
+    matching blocks (same declaration, e.g. 'group X for Y {') are merged
+    recursively so only genuinely new content is inserted, in place, instead
+    of duplicating the whole block. Closing braces are never treated as
+    standalone lines — they belong to their block — so nesting can't break.
 
-    Deliberately does NO deduplication. IFS source is brace-structured —
-    any heuristic that drops a line because it "looks like a duplicate"
-    (matching set membership, or even sequence-diff opcodes) risks dropping
-    a closing brace that belongs to an entirely different block, silently
-    corrupting the nesting. A handful of duplicate lines is a cosmetic,
-    easily-spotted issue; a missing brace is a file that won't compile.
-    Preserving every line from both sides is the only safe default.
+    Falls back to plain concatenation when the content has no braces at all
+    (nothing structural to key off), which still guarantees no line is lost.
     """
-    return list(local) + list(repo)
+    if not local:
+        return list(repo)
+    if not repo:
+        return list(local)
+
+    has_braces = any("{" in l or "}" in l for l in local + repo)
+    if not has_braces:
+        # No block structure to merge on — just append repo lines that
+        # aren't already present verbatim in local.
+        local_set = {l.strip() for l in local if l.strip()}
+        merged = list(local)
+        for line in repo:
+            if line.strip() and line.strip() not in local_set:
+                merged.append(line)
+        return merged
+
+    local_tree = _parse_block_tree(local)
+    repo_tree  = _parse_block_tree(repo)
+    merged_tree = _merge_block_trees(local_tree, repo_tree)
+    return _render_block_tree(merged_tree)
 
 
 def apply_resolution(file_path: str, resolutions: list[dict]) -> None:
