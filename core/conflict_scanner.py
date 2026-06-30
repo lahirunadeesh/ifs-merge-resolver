@@ -284,27 +284,17 @@ def _merge_comment_blocks(local: list[str], repo: list[str]) -> list[str]:
 
 def _merge_code_lines(local: list[str], repo: list[str]) -> list[str]:
     """
-    Combine code lines from both sides: local lines, followed by any
-    repo lines that are genuinely new (sequence-diffed, not set-deduped).
+    Combine code lines from both sides: local lines followed by repo lines.
 
-    Using a set of stripped text here would be wrong for source code —
-    structural lines like '}' or '{' repeat throughout a file, so a
-    plain "already seen" set would treat every later occurrence as a
-    duplicate and silently drop it, breaking brace matching. Diffing
-    the full ordered sequences instead only flags lines that are truly
-    absent from local at their position in repo.
+    Deliberately does NO deduplication. IFS source is brace-structured —
+    any heuristic that drops a line because it "looks like a duplicate"
+    (matching set membership, or even sequence-diff opcodes) risks dropping
+    a closing brace that belongs to an entirely different block, silently
+    corrupting the nesting. A handful of duplicate lines is a cosmetic,
+    easily-spotted issue; a missing brace is a file that won't compile.
+    Preserving every line from both sides is the only safe default.
     """
-    if not local:
-        return list(repo)
-    if not repo:
-        return list(local)
-
-    matcher = difflib.SequenceMatcher(None, local, repo, autojunk=False)
-    merged = list(local)
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag in ("insert", "replace"):
-            merged.extend(repo[j1:j2])
-    return merged
+    return list(local) + list(repo)
 
 
 def apply_resolution(file_path: str, resolutions: list[dict]) -> None:
