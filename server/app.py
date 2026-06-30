@@ -111,19 +111,21 @@ def _open_folder_dialog():
         return path if path else None
 
     elif system == "Windows":
-        # Use PowerShell folder picker — reliable on all Windows versions
+        import ctypes
         ps_script = (
-            "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null;"
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "[System.Windows.Forms.Application]::EnableVisualStyles();"
             "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
             "$dlg.Description = 'Select IFS Project Root';"
             "$dlg.ShowNewFolderButton = $false;"
             "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.SelectedPath }"
         )
+        CREATE_NO_WINDOW = 0x08000000
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
-            capture_output=True, text=True, timeout=60
+            ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps_script],
+            capture_output=True, text=True, timeout=60,
+            creationflags=CREATE_NO_WINDOW
         )
-        # Normalize: strip whitespace, convert backslashes to forward slashes
         path = result.stdout.strip().replace("\r", "").replace("\n", "")
         path = os.path.normpath(path) if path else None
         return path if path else None
