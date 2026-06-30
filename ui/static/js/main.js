@@ -417,5 +417,8 @@ function escapeHtml(str) {
 }
 
 function escapeAttr(str) {
-    return (str || "").replace(/'/g, "\\'");
+    // Escape backslashes FIRST (Windows paths), then single quotes —
+    // otherwise inline onclick="..." JS string literals silently eat
+    // backslashes before unrecognized escapes like \H, \D, \w.
+    return (str || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
