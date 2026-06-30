@@ -6,6 +6,8 @@ import subprocess
 import webbrowser
 import threading
 import asyncio
+import urllib.request
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -110,17 +112,19 @@ def _open_folder_dialog():
     elif system == "Windows":
         # Use PowerShell folder picker — reliable on all Windows versions
         ps_script = (
-            "Add-Type -AssemblyName System.Windows.Forms;"
+            "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null;"
             "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
             "$dlg.Description = 'Select IFS Project Root';"
             "$dlg.ShowNewFolderButton = $false;"
-            "if ($dlg.ShowDialog() -eq 'OK') { $dlg.SelectedPath }"
+            "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.SelectedPath }"
         )
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True, text=True
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True, text=True, timeout=60
         )
-        path = result.stdout.strip()
+        # Normalize: strip whitespace, convert backslashes to forward slashes
+        path = result.stdout.strip().replace("\r", "").replace("\n", "")
+        path = os.path.normpath(path) if path else None
         return path if path else None
 
     else:
@@ -213,10 +217,8 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static"
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def open_browser():
-    import urllib.request
-    import time
-    for _ in range(30):
+def _wait_and_open_browser():
+    for _ in range(40):
         try:
             urllib.request.urlopen("http://127.0.0.1:7845/health")
             break
@@ -224,6 +226,57 @@ def open_browser():
             time.sleep(0.5)
     webbrowser.open("http://localhost:7845/")
 
-if __name__ == "__main__":
-    threading.Thread(target=open_browser, daemon=True).start()
+
+def _start_server():
     uvicorn.run(app, host="127.0.0.1", port=7845, log_config=None)
+
+
+def _make_tray_icon():
+    """Create a simple coloured icon image for the system tray."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    # Blue circle background
+    draw.ellipse([4, 4, 60, 60], fill=(88, 166, 255, 255))
+    # White "M" for Merge
+    draw.rectangle([14, 16, 22, 48], fill="white")
+    draw.rectangle([42, 16, 50, 48], fill="white")
+    draw.polygon([(14, 16), (32, 36), (50, 16)], fill="white")
+    return img
+
+
+if __name__ == "__main__":
+    # Start server in background thread
+    server_thread = threading.Thread(target=_start_server, daemon=True)
+    server_thread.start()
+
+    # Open browser once server is ready
+    threading.Thread(target=_wait_and_open_browser, daemon=True).start()
+
+    # System tray icon
+    try:
+        import pystray
+        from PIL import Image
+
+        icon_image = _make_tray_icon()
+
+        def on_open(icon, item):
+            webbrowser.open("http://localhost:7845/")
+
+        def on_quit(icon, item):
+            icon.stop()
+            os._exit(0)
+
+        tray = pystray.Icon(
+            "IFSMergeResolver",
+            icon_image,
+            "IFS Merge Resolver",
+            menu=pystray.Menu(
+                pystray.MenuItem("Open", on_open, default=True),
+                pystray.MenuItem("Quit", on_quit),
+            )
+        )
+        tray.run()   # blocks — keeps the process alive
+    except Exception:
+        # Fallback if pystray unavailable: just keep the server running
+        server_thread.join()
