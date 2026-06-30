@@ -111,21 +111,34 @@ def _open_folder_dialog():
         return path if path else None
 
     elif system == "Windows":
-        import ctypes
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms;"
             "[System.Windows.Forms.Application]::EnableVisualStyles();"
+            "$f = New-Object System.Windows.Forms.Form;"
+            "$f.TopMost = $true;"
             "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
             "$dlg.Description = 'Select IFS Project Root';"
             "$dlg.ShowNewFolderButton = $false;"
-            "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.SelectedPath }"
+            "$result = $dlg.ShowDialog($f);"
+            "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.SelectedPath }"
         )
         CREATE_NO_WINDOW = 0x08000000
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps_script],
-            capture_output=True, text=True, timeout=60,
-            creationflags=CREATE_NO_WINDOW
-        )
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-STA",
+                 "-WindowStyle", "Hidden", "-Command", ps_script],
+                capture_output=True, text=True, timeout=120,
+                creationflags=CREATE_NO_WINDOW
+            )
+        except Exception as e:
+            (Path.home() / "ifs_merge_resolver.log").write_text(f"Folder picker error: {e}")
+            return None
+
+        if result.returncode != 0 and result.stderr:
+            (Path.home() / "ifs_merge_resolver.log").write_text(
+                f"PowerShell stderr:\n{result.stderr}\n\nstdout:\n{result.stdout}"
+            )
+
         path = result.stdout.strip().replace("\r", "").replace("\n", "")
         path = os.path.normpath(path) if path else None
         return path if path else None
