@@ -111,37 +111,26 @@ def _open_folder_dialog():
         return path if path else None
 
     elif system == "Windows":
-        ps_script = (
-            "Add-Type -AssemblyName System.Windows.Forms;"
-            "[System.Windows.Forms.Application]::EnableVisualStyles();"
-            "$f = New-Object System.Windows.Forms.Form;"
-            "$f.TopMost = $true;"
-            "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
-            "$dlg.Description = 'Select IFS Project Root';"
-            "$dlg.ShowNewFolderButton = $false;"
-            "$result = $dlg.ShowDialog($f);"
-            "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.SelectedPath }"
-        )
-        CREATE_NO_WINDOW = 0x08000000
+        # tkinter's native dialog is far more reliable than spawning PowerShell.
+        # Unlike macOS, tkinter on Windows does not require the main thread.
         try:
-            result = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-STA",
-                 "-WindowStyle", "Hidden", "-Command", ps_script],
-                capture_output=True, text=True, timeout=120,
-                creationflags=CREATE_NO_WINDOW
-            )
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askdirectory(title="Select IFS Project Root")
+            root.destroy()
+
+            path = os.path.normpath(path) if path else None
+            return path if path else None
         except Exception as e:
-            (Path.home() / "ifs_merge_resolver.log").write_text(f"Folder picker error: {e}")
-            return None
-
-        if result.returncode != 0 and result.stderr:
+            import traceback
             (Path.home() / "ifs_merge_resolver.log").write_text(
-                f"PowerShell stderr:\n{result.stderr}\n\nstdout:\n{result.stdout}"
+                f"Folder picker error: {e}\n\n{traceback.format_exc()}"
             )
-
-        path = result.stdout.strip().replace("\r", "").replace("\n", "")
-        path = os.path.normpath(path) if path else None
-        return path if path else None
+            return None
 
     else:
         # Linux fallback: zenity

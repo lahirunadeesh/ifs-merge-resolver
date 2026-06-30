@@ -35,6 +35,8 @@ a = Analysis(
         'anyio',
         'anyio._backends._asyncio',
         'multipart',
+        'tkinter',
+        'tkinter.filedialog',
         'pystray',
         'pystray._win32',
         'pystray._darwin',
