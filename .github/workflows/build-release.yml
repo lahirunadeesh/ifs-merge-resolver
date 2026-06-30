@@ -40,9 +40,9 @@ jobs:
         with:
           files: dist/IFSMergeResolver-mac.zip
 
-  # ── Windows .exe ─────────────────────────────────────────────────────────────
+  # ── Windows installer (.exe setup) ───────────────────────────────────────────
   build-windows:
-    name: Build Windows Exe
+    name: Build Windows Installer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,18 +55,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
 
-      - name: Build .exe
+      - name: Build .exe with PyInstaller
         env:
           IFS_LICENSE_SECRET: ${{ secrets.IFS_LICENSE_SECRET }}
         run: pyinstaller build.spec
 
-      - name: Zip the exe folder
-        run: |
-          cd dist
-          Compress-Archive -Path IFSMergeResolver -DestinationPath IFSMergeResolver-windows.zip
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
         shell: pwsh
 
-      - name: Upload to Release
+      - name: Build Windows installer
+        run: |
+          mkdir installer_output
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+        shell: pwsh
+
+      - name: Upload installer to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/IFSMergeResolver-windows.zip
+          files: installer_output/IFSMergeResolver-Setup.exe
