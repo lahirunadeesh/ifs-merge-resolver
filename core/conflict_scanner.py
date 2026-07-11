@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 import re
 import difflib
 from pathlib import Path
@@ -10,12 +9,11 @@ CONFLICT_START = re.compile(r'^<{7} ')
 CONFLICT_SEP   = re.compile(r'^={7}$')
 CONFLICT_END   = re.compile(r'^>{7} ')
 
-# IFS comment line patterns
-LINE_COMMENT    = re.compile(r'^\s*--')
-BLOCK_COMMENT_S = re.compile(r'^\s*/\*')
-BLOCK_COMMENT_E = re.compile(r'\*/\s*$')
-# History entry: e.g. "-- 240102  NHENLK  SMDEV-21249 - ..."
-HISTORY_ENTRY   = re.compile(r'^\s*--\s+\d{6}\s+\w+\s+')
+# IFS history header patterns
+_HIST_DATE  = re.compile(r'--\s+Date\s+Sign\s+History', re.IGNORECASE)
+_HIST_DASHES = re.compile(r'--\s+-{3,}')
+_HIST_ENTRY  = re.compile(r'--\s+\d{6,8}\s+\S')
+_HIST_SEP    = re.compile(r'^-{20,}\s*$')
 
 
 def scan_for_conflicts(root_path: str) -> list[dict]:
@@ -91,7 +89,7 @@ def parse_conflicts(file_path: str) -> list[dict]:
             except Exception:
                 diff = []
 
-            raw_preview = _smart_merge_preview(local_lines, repo_lines)
+            raw_preview = _smart_merge_both(local_lines, repo_lines)
             preview     = strip_blank_lines(beautify(raw_preview, ext))
 
             conflicts.append({
@@ -109,16 +107,9 @@ def parse_conflicts(file_path: str) -> list[dict]:
 
 
 def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) -> list[dict]:
-    """
-    Build a structured line-by-line diff between local and repo sides.
-    Each entry: { line_no_local, line_no_repo, text, kind }
-    kind: 'local' (green) | 'repo' (red) | 'context' (shared)
-    """
-    # Normalise: strip trailing newlines for comparison, keep originals for display
     local_clean = [l.rstrip("\n") for l in local_lines]
     repo_clean  = [l.rstrip("\n") for l in repo_lines]
 
-    # Edge cases: one side is empty
     if not local_clean and not repo_clean:
         return []
     if not local_clean:
@@ -180,153 +171,144 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
     return result
 
 
-def _smart_merge_preview(local_lines: list[str], repo_lines: list[str]) -> str:
-    """
-    Preview of what 'Keep Both' will produce after smart comment merging.
-    """
-    return _smart_merge_both(local_lines, repo_lines)
-
+# ── Smart merge: Keep Both ────────────────────────────────────────────────────
 
 def _smart_merge_both(local_lines: list[str], repo_lines: list[str]) -> str:
     """
-    Merge local and repo sides using one unified structural + positional
-    merge (see _merge_block_trees). Comments, history stamps, and code are
-    NOT split apart first — they're parsed into a single tree together, so
-    a comment line sitting right above a field stays right above that field
-    after merging, instead of every comment being collapsed into one block
-    at the top regardless of where it actually belonged.
+    Merge strategy for 'Keep Both':
+
+    IFS conflicts arise when two developers each add new code (attributes,
+    procedures, fields) in the same block.  The correct resolution is always
+    to keep ALL content from BOTH sides.
+
+    Algorithm:
+      1. If both sides begin with an IFS history-comment header
+         (--  Date  Sign  History / --  ------  / date entries / -----...),
+         merge those headers into one (avoiding the duplicated boilerplate)
+         and concatenate the bodies.
+      2. Otherwise, concatenate local + repo as-is.
+
+    No line deduplication is performed on the body — if the same section
+    header appears in both sides it will appear twice, which is correct
+    (each developer's block needs its own section context).
     """
-    merged_code = _merge_code_lines(local_lines, repo_lines)
-    return "".join(merged_code).rstrip()
+    if not local_lines:
+        return "".join(repo_lines).rstrip()
+    if not repo_lines:
+        return "".join(local_lines).rstrip()
+
+    local_hdr_end = _find_history_header_end(local_lines)
+    repo_hdr_end  = _find_history_header_end(repo_lines)
+
+    if local_hdr_end is not None and repo_hdr_end is not None:
+        merged_hdr  = _merge_history_headers(local_lines[:local_hdr_end],
+                                              repo_lines[:repo_hdr_end])
+        local_body  = local_lines[local_hdr_end:]
+        repo_body   = repo_lines[repo_hdr_end:]
+        return ("".join(merged_hdr) + _join_bodies(local_body, repo_body)).rstrip()
+
+    return _join_bodies(local_lines, repo_lines).rstrip()
 
 
-BLOCK_OPEN_RE  = re.compile(r'\{\s*$')
-BLOCK_CLOSE_RE = re.compile(r'^\s*\}\s*;?\s*$')
-
-
-def _parse_block_tree(lines: list[str]) -> list[dict]:
+def _join_bodies(local: list[str], repo: list[str]) -> str:
     """
-    Parse a flat list of code lines into a tree of brace-delimited blocks:
-      {'type': 'block', 'header': line, 'children': [...], 'footer': line|None}
-      {'type': 'line',  'text': line}
-    A block's footer is None if its closing brace falls outside this
-    slice of lines (e.g. the conflict hunk didn't include it) — in that
-    case we must never invent a synthetic '}' when rendering back out,
-    since the real one already exists later in the file.
+    Concatenate local body + repo body.  Strip leading blank lines from the
+    repo side so we don't accumulate excess whitespace at the join point;
+    ensure exactly one blank line separates them.
     """
-    root: dict = {"children": []}
-    stack = [root]
+    local_text = "".join(local)
+    repo_text  = "".join(repo).lstrip("\n")
 
-    for line in lines:
-        stripped = line.rstrip("\n")
-        if BLOCK_CLOSE_RE.match(stripped) and len(stack) > 1:
-            block = stack.pop()
-            block["footer"] = line
-            stack[-1]["children"].append(block)
-        elif BLOCK_OPEN_RE.search(stripped):
-            stack.append({"type": "block", "header": line, "children": [], "footer": None})
+    if not local_text:
+        return repo_text
+    if not repo_text:
+        return local_text
+
+    # Ensure a single newline gap between the two halves
+    if not local_text.endswith("\n"):
+        local_text += "\n"
+
+    return local_text + repo_text
+
+
+def _find_history_header_end(lines: list[str]) -> int | None:
+    """
+    Return the index of the first line AFTER the IFS history header block, or
+    None if no such header is found at the start of `lines`.
+
+    A header looks like:
+        --  Date    Sign    History
+        --  ------  ------  ------...
+        --  YYYYMMDD  Sign  ...entry...
+        ...more entries...
+        -------...   (long dash separator)
+    """
+    n = len(lines)
+    i = 0
+
+    # Skip any leading blank lines
+    while i < n and not lines[i].strip():
+        i += 1
+
+    # Must start with the "Date Sign History" line
+    if i >= n or not _HIST_DATE.search(lines[i]):
+        return None
+    i += 1
+
+    # "------  ------" line
+    if i >= n or not _HIST_DASHES.search(lines[i]):
+        return None
+    i += 1
+
+    # One or more date entries
+    entry_count = 0
+    while i < n and _HIST_ENTRY.search(lines[i]):
+        i += 1
+        entry_count += 1
+
+    if entry_count == 0:
+        return None
+
+    # Closing "------...----" separator (20+ dashes)
+    if i < n and _HIST_SEP.match(lines[i].rstrip()):
+        i += 1
+        return i
+
+    return None
+
+
+def _merge_history_headers(local_hdr: list[str], repo_hdr: list[str]) -> list[str]:
+    """
+    Produce one merged IFS history comment header from the two sides.
+    - Keep local's "Date / ------" lines (one copy).
+    - Collect all date-entry lines from both sides (deduped by stripped text).
+    - Add the closing separator once.
+    - Append everything else from local (blank lines before code, etc.).
+    """
+    local_entries = [l for l in local_hdr if _HIST_ENTRY.search(l)]
+    repo_entries  = [l for l in repo_hdr  if _HIST_ENTRY.search(l)]
+
+    seen    = {l.strip() for l in local_entries}
+    extra   = [l for l in repo_entries if l.strip() not in seen]
+    all_entries = local_entries + extra
+
+    merged: list[str] = []
+    in_entries = False
+    entries_written = False
+
+    for line in local_hdr:
+        if _HIST_ENTRY.search(line):
+            if not in_entries:
+                in_entries = True
+            # Write all merged entries at the first entry position
+            if not entries_written:
+                merged.extend(all_entries)
+                entries_written = True
+            # Skip original local entry lines (already written above)
         else:
-            stack[-1]["children"].append({"type": "line", "text": line})
-
-    # Any still-open blocks had their closing brace outside this slice —
-    # flush them up with footer=None so we don't fabricate one later.
-    while len(stack) > 1:
-        block = stack.pop()
-        stack[-1]["children"].append(block)
-
-    return root["children"]
-
-
-def _render_block_tree(items: list[dict]) -> list[str]:
-    out = []
-    for item in items:
-        if item.get("type") == "block":
-            out.append(item["header"])
-            out.extend(_render_block_tree(item["children"]))
-            if item.get("footer") is not None:
-                out.append(item["footer"])
-        else:
-            out.append(item["text"])
-    return out
-
-
-def _item_key(item: dict) -> tuple:
-    """Identity key used to align local/repo items positionally."""
-    if item.get("type") == "block":
-        return ("block", item["header"].strip())
-    return ("line", item["text"].strip())
-
-
-def _merge_block_trees(local_items: list[dict], repo_items: list[dict]) -> list[dict]:
-    """
-    Structural + positional merge: sequence-diff local vs repo items (blocks
-    keyed by header, lines keyed by text) so that anything genuinely new in
-    repo — including scattered comments and history stamps, not just leading
-    ones — gets inserted exactly where it diverges, instead of being dumped
-    at the end of the block. Matching blocks are merged recursively so their
-    children get the same positional treatment one level down.
-    """
-    if not local_items:
-        return list(repo_items)
-    if not repo_items:
-        return list(local_items)
-
-    local_keys = [_item_key(it) for it in local_items]
-    repo_keys  = [_item_key(it) for it in repo_items]
-
-    matcher = difflib.SequenceMatcher(None, local_keys, repo_keys, autojunk=False)
-    merged: list[dict] = []
-
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            for k in range(i2 - i1):
-                local_it = local_items[i1 + k]
-                repo_it  = repo_items[j1 + k]
-                if local_it.get("type") == "block":
-                    local_it["children"] = _merge_block_trees(local_it["children"], repo_it["children"])
-                    if local_it.get("footer") is None and repo_it.get("footer") is not None:
-                        local_it["footer"] = repo_it["footer"]
-                merged.append(local_it)
-        elif tag == "delete":
-            # Present only in local — keep it, right where it was.
-            merged.extend(local_items[i1:i2])
-        elif tag == "insert":
-            # Present only in repo — insert right here, at the point of divergence.
-            merged.extend(repo_items[j1:j2])
-        elif tag == "replace":
-            # Both sides differ in this stretch — keep local's version,
-            # then add repo's differing content immediately after it.
-            merged.extend(local_items[i1:i2])
-            merged.extend(repo_items[j1:j2])
+            merged.append(line)
 
     return merged
-
-
-def _merge_code_lines(local: list[str], repo: list[str]) -> list[str]:
-    """
-    Combine code lines from both sides using a structural (brace-tree) merge:
-    matching blocks (same declaration, e.g. 'group X for Y {') are merged
-    recursively so only genuinely new content is inserted, in place, instead
-    of duplicating the whole block. Closing braces are never treated as
-    standalone lines — they belong to their block — so nesting can't break.
-
-    Falls back to plain concatenation when the content has no braces at all
-    (nothing structural to key off), which still guarantees no line is lost.
-    """
-    if not local:
-        return list(repo)
-    if not repo:
-        return list(local)
-
-    # _parse_block_tree degrades gracefully when there are no braces at
-    # all (everything becomes a flat list of 'line' items), and
-    # _merge_block_trees' sequence-diff is positionally aware — so this
-    # single path is safe for brace-structured code, plain comment
-    # blocks, and non-brace languages (PL/SQL etc.) alike.
-    local_tree  = _parse_block_tree(local)
-    repo_tree   = _parse_block_tree(repo)
-    merged_tree = _merge_block_trees(local_tree, repo_tree)
-    return _render_block_tree(merged_tree)
 
 
 def apply_resolution(file_path: str, resolutions: list[dict]) -> None:
