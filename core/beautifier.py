@@ -12,14 +12,17 @@ def beautify(text: str, extension: str) -> str:
         ext = extension.lower()
         if ext == ".entity":
             return _beautify_xml(text)
-        elif ext in (".projection", ".client", ".fragment", ".views", ".utility"):
+        elif ext in (".projection", ".client", ".fragment", ".utility", ".enumeration"):
             return _beautify_dsl(text)
-        elif ext in (".plsql", ".plsvc", ".ddlsource", ".cdb", ".pltst"):
-            return _beautify_sql(text)
+        elif ext in (".plsql", ".plsvc", ".pltst"):
+            return _beautify_plsql(text)
+        elif ext in (".ddlsource", ".cdb"):
+            return _beautify_ddl(text)
+        elif ext == ".views":
+            return _beautify_views(text)
         else:
             return _beautify_generic(text)
     except Exception:
-        # Never break the workflow — return original if formatting fails
         return text
 
 
@@ -29,7 +32,6 @@ def _beautify_xml(text: str) -> str:
     try:
         dom = minidom.parseString(text.encode("utf-8"))
         pretty = dom.toprettyxml(indent="   ", encoding=None)
-        # toprettyxml adds an XML declaration — strip it if it wasn't there
         lines = pretty.split("\n")
         if lines and lines[0].startswith("<?xml"):
             if not text.strip().startswith("<?xml"):
@@ -37,14 +39,20 @@ def _beautify_xml(text: str) -> str:
         result = "\n".join(lines)
         return _remove_excess_blank_lines(result.strip())
     except Exception:
+        # Partial XML fragment (e.g. cut mid-element by git conflict marker)
+        # Preserve original whitespace rather than mangling it
         return _beautify_generic(text)
 
 
-# ── DSL (.projection, .client, .fragment) ─────────────────────────────────────
+# ── Marble DSL (.projection, .client, .fragment, .utility, .enumeration) ──────
+#
+# IFS Marble DSL uses curly-brace blocks with 3-space indentation.
+# Named constructs: entity, attribute, action, function, list, group, field,
+# page, command, selector, dialog, navigator, enumeration, structure, query.
 
 _DSL_BLOCK_OPEN  = re.compile(r'\{\s*$')
 _DSL_BLOCK_CLOSE = re.compile(r'^\s*\}')
-_INDENT = "   "  # IFS standard 3-space indent
+_INDENT = "   "  # IFS Developer Studio standard: 3 spaces
 
 def _beautify_dsl(text: str) -> str:
     lines = text.splitlines()
@@ -55,7 +63,6 @@ def _beautify_dsl(text: str) -> str:
         stripped = line.strip()
 
         if not stripped:
-            # Preserve single blank lines, collapse multiples later
             result.append("")
             continue
 
@@ -63,9 +70,7 @@ def _beautify_dsl(text: str) -> str:
         if stripped.startswith("}"):
             depth = max(0, depth - 1)
 
-        # Comment lines and annotation lines keep current depth
-        indented = _INDENT * depth + stripped
-        result.append(indented)
+        result.append(_INDENT * depth + stripped)
 
         # Increase indent after opening brace
         if stripped.endswith("{"):
@@ -74,42 +79,53 @@ def _beautify_dsl(text: str) -> str:
     return _remove_excess_blank_lines("\n".join(result))
 
 
-# ── SQL / PL/SQL (.plsql, .ddlsource, .plsvc) ─────────────────────────────────
+# ── PL/SQL (.plsql, .plsvc, .pltst) ───────────────────────────────────────────
+#
+# IFS PL/SQL follows Oracle package body conventions with IFS-specific section
+# comment headers (e.g. "---- PUBLIC METHODS ----").
+#
+# We deliberately do NOT re-indent PL/SQL. IFS developers use aligned parameter
+# lists, CURSOR body formatting, and multi-level nested IF/LOOP structures that
+# a keyword-based re-indenter breaks. Preserve original indentation; only strip
+# trailing whitespace and collapse excess blank lines.
 
-_SQL_KEYWORDS = re.compile(
-    r'\b(SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|HAVING|INSERT|UPDATE|DELETE'
-    r'|SET|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|BEGIN|END|DECLARE|IS|RETURN'
-    r'|PROCEDURE|FUNCTION|PACKAGE|CURSOR|IF|THEN|ELSE|ELSIF|LOOP|FOR|WHILE'
-    r'|EXCEPTION|WHEN|RAISE|NULL|NOT|IN|OUT|COMMIT|ROLLBACK)\b',
-    re.IGNORECASE
-)
-
-def _beautify_sql(text: str) -> str:
+def _beautify_plsql(text: str) -> str:
     lines = text.splitlines()
-    result = []
-    depth = 0
+    result = [line.rstrip() for line in lines]
+    return _remove_excess_blank_lines("\n".join(result))
 
-    for line in lines:
-        stripped = line.strip()
 
-        if not stripped:
-            result.append("")
-            continue
+# ── DDL / CDB (.ddlsource, .cdb) ───────────────────────────────────────────────
+#
+# IFS .ddlsource files: IFS history header comment + @CodeRegistration blocks
+#   or TABLE/INDEX/SEQUENCE declarative DDL.
+# IFS .cdb files: IFS history header + anonymous PL/SQL blocks using
+#   Database_SYS API calls, each preceded by @CodeRegistration or PROMPT.
+#
+# Preserve original formatting — only strip trailing whitespace.
 
-        # Decrease indent before END / END; / EXCEPTION
-        if re.match(r'^(END\b|EXCEPTION\b)', stripped, re.IGNORECASE):
-            depth = max(0, depth - 1)
+def _beautify_ddl(text: str) -> str:
+    lines = text.splitlines()
+    result = [line.rstrip() for line in lines]
+    return _remove_excess_blank_lines("\n".join(result))
 
-        indented = _INDENT * depth + stripped
-        result.append(indented)
 
-        # Increase indent after BEGIN / IS / THEN / LOOP / DECLARE
-        if re.match(r'^(BEGIN|IS|THEN|LOOP|DECLARE)\b', stripped, re.IGNORECASE):
-            depth += 1
-        # @CodeRegistration blocks always reset to depth 0
-        if stripped.startswith("@CodeRegistration"):
-            depth = 0
+# ── Views (.views) ─────────────────────────────────────────────────────────────
+#
+# IFS .views files use a property-override DSL:
+#   COLUMN <ColumnName> IS
+#      Flags    = 'KMI--'
+#      Datatype = 'STRING(30)/UPPERCASE'
+#      Prompt   = 'Display Name';
+#   VIEW <ViewName> IS
+#      <ColumnName> IS
+#         Prompt = 'Override Label';
+#
+# Preserve developer formatting.
 
+def _beautify_views(text: str) -> str:
+    lines = text.splitlines()
+    result = [line.rstrip() for line in lines]
     return _remove_excess_blank_lines("\n".join(result))
 
 
