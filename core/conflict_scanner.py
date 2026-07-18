@@ -282,19 +282,18 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
     """
     Merge two Marble DSL line lists.
 
-    Structural key: the full declaration line before the opening '{', e.g.
-      'attribute CIpOrdRelLeadtime Number'
-      'field CCrCn'
-      '@Override\nentity InventoryPart'
-      '--(+) 20260612 WiaDinushikaR ME# 605169 (START)'  ← treated as loose line
+    Structural key: the normalised block declaration (annotation + keyword + name),
+    e.g. '@Override entity InventoryPart {', 'attribute CCrCn Boolean("TRUE","FALSE") {',
+    'field CCrCn {', '--(+) 20260612 ... (START)' (loose lines).
 
     Algorithm:
-    1. Parse both sides into a flat sequence of items, where each item is
-       either a named block (header + children + footer) or a loose line.
-    2. Build an identity map: declaration_key → item for each side.
-    3. Walk the repo sequence to insert repo-only items in order. For items
-       that exist on both sides with the same key, merge their children.
-    4. Append any local-only items that didn't appear in repo.
+    1. Parse both sides into a sequence of items (named blocks or loose lines).
+    2. Sequence-diff on item keys.
+    3. equal  → same-named block on both sides: merge children into one block
+               (prevents duplicate @Override entity / list / group blocks).
+    4. delete → local-only: keep.
+    5. insert → repo-only: keep.
+    6. replace → different items at same position: keep local then repo.
     """
     local_items = _parse_dsl_items(local)
     repo_items  = _parse_dsl_items(repo)
@@ -308,17 +307,21 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             for k in range(i2 - i1):
-                merged.extend(_render_dsl_item(local_items[i1 + k]))
+                local_it = local_items[i1 + k]
+                repo_it  = repo_items[j1 + k]
+                if local_it.get("type") == "block" and repo_it.get("type") == "block":
+                    # Same declaration on both sides (e.g. @Override entity InventoryPart).
+                    # Merge their children so the output contains a single unified block.
+                    merged.extend(_render_dsl_item(_merge_dsl_block(local_it, repo_it)))
+                else:
+                    merged.extend(_render_dsl_item(local_it))
         elif tag == "delete":
-            # In local only → keep
             for it in local_items[i1:i2]:
                 merged.extend(_render_dsl_item(it))
         elif tag == "insert":
-            # In repo only → keep
             for it in repo_items[j1:j2]:
                 merged.extend(_render_dsl_item(it))
         elif tag == "replace":
-            # Both sides differ → keep local version, then repo version
             for it in local_items[i1:i2]:
                 merged.extend(_render_dsl_item(it))
             for it in repo_items[j1:j2]:
@@ -327,73 +330,107 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
     return "".join(merged)
 
 
+def _merge_dsl_block(local_block: dict, repo_block: dict) -> dict:
+    """
+    Merge two DSL blocks that share the same declaration (same key).
+    Renders both children lists back to lines, merges them with _merge_dsl
+    (recursive), then wraps the result back into a single block dict.
+    """
+    local_child_lines = _children_to_lines(local_block)
+    repo_child_lines  = _children_to_lines(repo_block)
+    merged_text = _merge_dsl(local_child_lines, repo_child_lines)
+    merged_lines = (merged_text + "\n").splitlines(keepends=True) if merged_text else []
+    return {
+        "type":     "block",
+        "header":   local_block["header"],
+        "children": [{"type": "line", "text": l} for l in merged_lines],
+        "footer":   local_block.get("footer") or repo_block.get("footer"),
+    }
+
+
+def _children_to_lines(block: dict) -> list[str]:
+    """Render a block's children back to a flat list of strings."""
+    out: list[str] = []
+    for child in block["children"]:
+        if isinstance(child, dict):
+            out.extend(_render_dsl_item(child))
+        else:
+            out.append(child)
+    return out
+
+
 def _parse_dsl_items(lines: list[str]) -> list[dict]:
     """
-    Parse Marble DSL lines into a flat list of items:
-      {'type': 'block', 'header': str, 'children': [str, ...], 'footer': str|None}
+    Parse Marble DSL lines into a list of items:
+      {'type': 'block', 'header': str, 'children': [item|str, ...], 'footer': str|None}
       {'type': 'line',  'text': str}
+
+    Rules:
+    - Annotations (@Override, @DynamicComponentDependency, @Overtake, etc.) appearing
+      before a block opener are accumulated as part of that block's header.
+    - A block is added to its parent (or to the top-level items list) only when it
+      CLOSES — not when it opens — to avoid double-append.
+    - Unclosed blocks at end of input are flushed with footer=None (the closing brace
+      was outside the conflict hunk).
     """
     items: list[dict] = []
-    stack: list[dict] = []  # open blocks
-    pending_header_lines: list[str] = []  # lines accumulated before a '{' opens
+    stack: list[dict] = []          # currently open (unclosed) blocks
+    pending: list[str] = []         # annotation/comment lines waiting for next opener
 
-    i = 0
-    while i < len(lines):
-        line = lines[i]
+    for line in lines:
         stripped = line.strip()
 
+        # ── blank line ────────────────────────────────────────────────────────
         if not stripped:
             if stack:
                 stack[-1]["children"].append(line)
-            elif pending_header_lines:
-                pending_header_lines.append(line)
             else:
+                # Blank lines between top-level blocks: treat as loose items
                 items.append({"type": "line", "text": line})
-            i += 1
+                pending = []   # blank line resets any dangling pending lines
             continue
 
+        # ── closing brace ─────────────────────────────────────────────────────
         if _DSL_BLOCK_CLOSE.match(stripped) and stack:
             block = stack.pop()
             block["footer"] = line
+            pending = []
             if stack:
+                # Nested block — add to parent's children NOW (on close)
                 stack[-1]["children"].append(block)
             else:
                 items.append(block)
-            pending_header_lines = []
-            i += 1
             continue
 
+        # ── opening brace (block header) ──────────────────────────────────────
         if _DSL_BLOCK_OPEN.search(stripped) and stripped.endswith("{"):
-            pending_header_lines.append(line)
-            header = "".join(pending_header_lines)
-            pending_header_lines = []
-            block: dict = {"type": "block", "header": header, "children": [], "footer": None}
-            if stack:
-                stack[-1]["children"].append(block)
-            stack.append(block)
-            i += 1
+            pending.append(line)
+            header = "".join(pending)
+            pending = []
+            new_block: dict = {"type": "block", "header": header, "children": [], "footer": None}
+            # Push to stack; add to parent only when this block CLOSES (see above)
+            stack.append(new_block)
             continue
 
-        # Regular line or annotation — may be a prefix for the next block header
+        # ── regular line (or annotation prefix for next block) ────────────────
         if stack:
             stack[-1]["children"].append(line)
         else:
-            # Could be an @Override / @DynamicComponentDependency that belongs to the next block
-            pending_header_lines.append(line)
+            # Outside all blocks: could be @Override/@DynamicComponentDependency
+            # that belongs to the NEXT block opener — keep in pending
+            pending.append(line)
 
-        i += 1
-
-    # Flush unclosed blocks
+    # ── end of input: flush any unclosed blocks ───────────────────────────────
     while stack:
         block = stack.pop()
-        block["footer"] = None
+        block["footer"] = None   # closing brace was outside this conflict hunk
         if stack:
             stack[-1]["children"].append(block)
         else:
             items.append(block)
 
-    # Flush any remaining pending lines
-    for l in pending_header_lines:
+    # Flush remaining pending lines (annotations with no following block)
+    for l in pending:
         items.append({"type": "line", "text": l})
 
     return items
@@ -401,12 +438,17 @@ def _parse_dsl_items(lines: list[str]) -> list[dict]:
 
 def _dsl_item_key(item: dict) -> str:
     """
-    Return the canonical identity key for a DSL item.
-    For blocks: the stripped header text (multi-line headers collapsed).
-    For lines: the stripped text.
+    Canonical identity key for a DSL item.
+
+    For blocks: normalise the declaration header — collapse all whitespace to
+    single spaces so that indentation differences (@Override on different
+    indent levels, trailing spaces) don't cause false mismatches.
+
+    For loose lines: stripped text (comments, history markers, blank lines).
     """
     if item["type"] == "block":
-        return item["header"].strip().replace("\n", " ")
+        raw = item["header"].strip()
+        return re.sub(r'\s+', ' ', raw)
     return item["text"].strip()
 
 
