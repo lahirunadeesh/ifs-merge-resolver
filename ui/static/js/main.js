@@ -266,7 +266,7 @@ function renderConflict() {
 
     const previewPane = document.getElementById("previewPane");
     if (c.preview && c.local && c.repo) {
-        document.getElementById("previewCode").textContent = c.preview;
+        document.getElementById("previewCode").innerHTML = highlightDsl(c.preview);
         previewPane.style.display = "block";
     } else {
         previewPane.style.display = "none";
@@ -307,7 +307,7 @@ function resolve(strategy) {
             ? (c.local || "").split("\n")
             : (c.repo  || "").split("\n");
 
-    document.getElementById("modalPreview").textContent = lines.join("\n");
+    document.getElementById("modalPreview").innerHTML = highlightDsl(lines.join("\n"));
     document.getElementById("modalPreviewWrap").style.display =
         lines.some(l => l.trim()) ? "block" : "none";
 
@@ -400,6 +400,46 @@ function renderDiff(diffLines) {
         row.append(localNo, repoNo, marker, code);
         container.appendChild(row);
     });
+}
+
+// ── Syntax highlight for DSL / IFS Marble preview ────────────────────────────
+
+function highlightDsl(code) {
+    // Process line-by-line so line structure is preserved exactly.
+    // We apply a small set of token classes that match IFS Marble DSL patterns.
+    const DSL_KEYWORDS = /\b(entity|entityset|query|action|function|structure|enumeration|virtual|summary|singleton|page|list|group|command|dialog|selector|navigator|attribute|field|fieldset|filtersection|filtergroup|orderby|aggregate|reference|array|variable|parameter|return|execute|ludependency|where|from|to|luname|keys|use|label|editable|required|fetch|default|searchable|lovswitch|format|size|maxlength|insertable|updatable|deletable|onlyoninsert|enumerationtrue|enumerationfalse|validate|insert|update|delete|navigate|enabled|visible|emphasis|keepdefault|lovcolumns)\b/gi;
+    const ANNOTATIONS = /^(\s*)(@Override|@Overtake\s+Core|@DynamicComponentDependency\s+\S+|@CodeRegistration\s+\S+|@Overtake)/gm;
+    const STRINGS = /"([^"\\]|\\.)*"/g;
+    const COMMENTS = /(--.*)$/gm;
+    const BLOCK_COMMENTS = /\/\*[\s\S]*?\*\//g;
+
+    // Escape HTML first, then re-apply spans
+    let safe = escapeHtml(code);
+
+    // Apply in order (most specific first, least last) using placeholder tokens
+    // to avoid double-escaping. We wrap each class in a unique delimiter.
+    const tokens = [];
+    function ph(cls, text) {
+        const id = `\x01${tokens.length}\x01`;
+        tokens.push(`<span class="tok-${cls}">${text}</span>`);
+        return id;
+    }
+
+    // Block comments first (/* ... */)
+    safe = safe.replace(/\/\*[\s\S]*?\*\//g, m => ph("cmt", m));
+    // Line comments (-- ...)
+    safe = safe.replace(/(--[^\n]*)/g, m => ph("cmt", m));
+    // Annotations (@Override etc.)
+    safe = safe.replace(/@(?:Override|Overtake(?:\s+Core)?|DynamicComponentDependency\s+\S+|CodeRegistration\s+\S+)/g, m => ph("ann", m));
+    // Quoted strings
+    safe = safe.replace(/&quot;([^&]|&(?!quot;))*&quot;/g, m => ph("str", m));
+    // DSL keywords (only when not inside a token placeholder)
+    safe = safe.replace(DSL_KEYWORDS, m => ph("kw", m));
+
+    // Restore placeholders
+    safe = safe.replace(/\x01(\d+)\x01/g, (_, i) => tokens[+i]);
+
+    return safe;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

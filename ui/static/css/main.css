@@ -375,7 +375,7 @@ button:disabled:hover { background: #b2bec3; }
 }
 
 /* ── Action buttons ── */
-.actions { display: flex; gap: 10px; }
+.actions { display: flex; gap: 10px; margin-top: 20px; }
 
 .btn-local { background: #00b894; }
 .btn-local:hover { background: #00a381; }
@@ -390,26 +390,51 @@ button:disabled:hover { background: #b2bec3; }
     border-radius: 6px;
     overflow: hidden;
     border: 1px solid #a29bfe;
+    box-shadow: 0 2px 8px rgba(108,92,231,0.08);
 }
 .preview-label {
     background: #ede9fe;
     color: #5a4bd1;
-    padding: 6px 12px;
+    padding: 8px 14px;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    border-bottom: 1px solid #c4b5fd;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.preview-label::before {
+    content: "{ }";
+    font-family: "SF Mono", Menlo, "Cascadia Code", monospace;
+    font-size: 10px;
+    background: #c4b5fd;
+    color: #3730a3;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: 0;
 }
 #previewCode {
-    padding: 12px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
-    background: #f5f3ff;
-    min-height: 60px;
+    padding: 14px 16px;
+    font-family: "SF Mono", "Cascadia Code", Menlo, "Courier New", monospace;
+    font-size: 12.5px;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.7;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    min-height: 80px;
+    tab-size: 3;
+    -moz-tab-size: 3;
 }
+/* Syntax-style token colours applied via JS spans */
+#previewCode .tok-kw   { color: #89b4fa; }   /* keywords: entity, attribute … */
+#previewCode .tok-ann  { color: #a6e3a1; }   /* @Override / @Overtake         */
+#previewCode .tok-str  { color: #a6e3a1; }   /* quoted strings                */
+#previewCode .tok-cmt  { color: #6c7086; font-style: italic; } /* -- comments  */
+#previewCode .tok-num  { color: #fab387; }   /* numbers                       */
 
 /* ── Info message ── */
 .info-message {
@@ -478,16 +503,24 @@ button:disabled:hover { background: #b2bec3; }
     color: #00695c;
 }
 #modalPreview {
-    padding: 12px;
-    font-family: "SF Mono", Menlo, monospace;
+    padding: 14px 16px;
+    font-family: "SF Mono", "Cascadia Code", Menlo, "Courier New", monospace;
     font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
-    background: #fafafa;
-    max-height: 260px;
+    white-space: pre;
+    overflow-x: auto;
     overflow-y: auto;
+    line-height: 1.7;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    max-height: 260px;
+    tab-size: 3;
+    -moz-tab-size: 3;
 }
+#modalPreview .tok-kw  { color: #89b4fa; }
+#modalPreview .tok-ann { color: #a6e3a1; }
+#modalPreview .tok-str { color: #a6e3a1; }
+#modalPreview .tok-cmt { color: #6c7086; font-style: italic; }
+#modalPreview .tok-num { color: #fab387; }
 .modal-footer {
     padding: 14px 20px;
     display: flex;
