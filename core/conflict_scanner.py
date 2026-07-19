@@ -322,12 +322,66 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
             for it in repo_items[j1:j2]:
                 merged.extend(_render_dsl_item(it))
         elif tag == "replace":
-            for it in local_items[i1:i2]:
+            local_chunk = local_items[i1:i2]
+            repo_chunk  = repo_items[j1:j2]
+            # If one side is a single named block (entity/query/…) and the
+            # other has only flat children (the conflict hunk sits inside an
+            # already-open block in the file), unwrap the wrapper block so
+            # both sides are at the same nesting level before concatenating.
+            local_chunk, repo_chunk = _unwrap_if_asymmetric(local_chunk, repo_chunk)
+            for it in local_chunk:
                 merged.extend(_render_dsl_item(it))
-            for it in repo_items[j1:j2]:
+            for it in repo_chunk:
                 merged.extend(_render_dsl_item(it))
 
     return "".join(merged)
+
+
+_DSL_WRAPPER_KW = re.compile(
+    r'\b(entity|entityset|query|virtual|summary|singleton|structure|enumeration)\b',
+    re.IGNORECASE,
+)
+
+def _unwrap_if_asymmetric(
+    local_items: list[dict], repo_items: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """
+    Handle the asymmetric conflict pattern where one branch added a named
+    wrapper block (e.g. ``entity InventoryPart { … }``) while the other branch
+    only added flat child items (attributes/markers).  This happens when the
+    conflict hunk sits *inside* an already-open entity block in the surrounding
+    file: one branch redeclared the entity, the other just appended children.
+
+    When detected, the wrapper block is replaced by its children so both sides
+    are flat attribute lists that can be safely concatenated.
+    """
+    def _top_level_blocks(items):
+        return [it for it in items if it.get("type") == "block"
+                and _DSL_WRAPPER_KW.search(it.get("header", ""))]
+
+    def _has_only_non_wrapper(items):
+        """True when no item is an entity-level wrapper block."""
+        return not any(
+            it.get("type") == "block" and _DSL_WRAPPER_KW.search(it.get("header", ""))
+            for it in items
+        )
+
+    local_wrappers = _top_level_blocks(local_items)
+    repo_wrappers  = _top_level_blocks(repo_items)
+
+    if len(repo_wrappers) == 1 and _has_only_non_wrapper(local_items):
+        # Repo side re-declared the entity; local side just has children.
+        block = repo_wrappers[0]
+        child_lines = _children_to_lines(block)
+        return local_items, _parse_dsl_items(child_lines)
+
+    if len(local_wrappers) == 1 and _has_only_non_wrapper(repo_items):
+        # Local side re-declared the entity; repo side just has children.
+        block = local_wrappers[0]
+        child_lines = _children_to_lines(block)
+        return _parse_dsl_items(child_lines), repo_items
+
+    return local_items, repo_items
 
 
 def _merge_dsl_block(local_block: dict, repo_block: dict) -> dict:
