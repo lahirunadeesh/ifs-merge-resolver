@@ -257,18 +257,23 @@ def _merge_body(local: list[str], repo: list[str], ext: str) -> str:
     if not repo:
         return "".join(local)
 
-    if ext in (".projection", ".client", ".fragment", ".utility", ".enumeration"):
+    # Marble DSL — brace-delimited block language
+    if ext in (".projection", ".client", ".fragment"):
         return _merge_dsl(local, repo)
 
+    # PL/SQL — named procedure/function units
     if ext in (".plsql", ".plsvc", ".pltst"):
         return _merge_plsql(local, repo)
 
+    # DDL — @CodeRegistration anonymous blocks
     if ext in (".ddlsource", ".cdb"):
         return _merge_ddl(local, repo)
 
-    if ext == ".entity":
+    # XML — element-keyed by <NAME> or <ID>
+    if ext in (".entity", ".utility", ".enumeration"):
         return _merge_xml_entity(local, repo)
 
+    # Views — COLUMN/VIEW property blocks
     if ext == ".views":
         return _merge_views(local, repo)
 
@@ -310,9 +315,10 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
                 local_it = local_items[i1 + k]
                 repo_it  = repo_items[j1 + k]
                 if local_it.get("type") == "block" and repo_it.get("type") == "block":
-                    # Same declaration on both sides (e.g. @Override entity InventoryPart).
-                    # Merge their children so the output contains a single unified block.
-                    merged.extend(_render_dsl_item(_merge_dsl_block(local_it, repo_it)))
+                    # Same named block on both sides — resolve without duplication.
+                    # @Overtake Core beats @Override (complete replacement).
+                    # Otherwise merge children recursively.
+                    merged.extend(_render_dsl_item(_dsl_overtake_wins(local_it, repo_it)))
                 else:
                     merged.extend(_render_dsl_item(local_it))
         elif tag == "delete":
@@ -337,48 +343,55 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
     return "".join(merged)
 
 
+# DSL keywords whose blocks act as wrappers (can contain attribute/field children).
+# Leaf-level blocks (attribute, field, badge, commandgroup, …) are NOT in this list.
 _DSL_WRAPPER_KW = re.compile(
-    r'\b(entity|entityset|query|virtual|summary|singleton|structure|enumeration)\b',
+    r'\b(entity|entityset|query|virtual|summary|singleton|structure|'
+    r'list|page|dialog|group|selector|navigator|aggregate|array|reference)\b',
     re.IGNORECASE,
 )
+
+
+def _is_wrapper_block(item: dict) -> bool:
+    return (item.get("type") == "block"
+            and bool(_DSL_WRAPPER_KW.search(item.get("header", ""))))
+
 
 def _unwrap_if_asymmetric(
     local_items: list[dict], repo_items: list[dict]
 ) -> tuple[list[dict], list[dict]]:
     """
-    Handle the asymmetric conflict pattern where one branch added a named
-    wrapper block (e.g. ``entity InventoryPart { … }``) while the other branch
-    only added flat child items (attributes/markers).  This happens when the
-    conflict hunk sits *inside* an already-open entity block in the surrounding
-    file: one branch redeclared the entity, the other just appended children.
+    Handle the asymmetric conflict where one branch re-declared the surrounding
+    WRAPPER block (entity/list/page/dialog/…) while the other just added
+    leaf children (attribute/field/marker lines) inside the already-open block.
 
-    When detected, the wrapper block is replaced by its children so both sides
-    are flat attribute lists that can be safely concatenated.
+    Pattern: conflict hunk sits inside an open block in the surrounding file.
+      one side  → a SINGLE wrapper block  (entity X { children… })
+      other side → leaf items only         (attribute Y {…}, marker comments)
+
+    Resolution: unwrap the single wrapper block to its children so both sides
+    are at the same nesting level and can be safely concatenated.
+
+    Wrapper keywords: entity, entityset, query, list, page, dialog, group,
+    selector, navigator, structure, virtual, summary, singleton, aggregate.
+    Leaf keywords (attribute, field, badge, commandgroup, …) are NOT unwrapped.
     """
-    def _top_level_blocks(items):
-        return [it for it in items if it.get("type") == "block"
-                and _DSL_WRAPPER_KW.search(it.get("header", ""))]
+    def _sole_wrapper(items: list[dict]) -> dict | None:
+        wrappers = [it for it in items if _is_wrapper_block(it)]
+        return wrappers[0] if len(wrappers) == 1 else None
 
-    def _has_only_non_wrapper(items):
-        """True when no item is an entity-level wrapper block."""
-        return not any(
-            it.get("type") == "block" and _DSL_WRAPPER_KW.search(it.get("header", ""))
-            for it in items
-        )
+    def _has_no_wrappers(items: list[dict]) -> bool:
+        return not any(_is_wrapper_block(it) for it in items)
 
-    local_wrappers = _top_level_blocks(local_items)
-    repo_wrappers  = _top_level_blocks(repo_items)
+    local_sole = _sole_wrapper(local_items)
+    repo_sole  = _sole_wrapper(repo_items)
 
-    if len(repo_wrappers) == 1 and _has_only_non_wrapper(local_items):
-        # Repo side re-declared the entity; local side just has children.
-        block = repo_wrappers[0]
-        child_lines = _children_to_lines(block)
+    if repo_sole is not None and _has_no_wrappers(local_items):
+        child_lines = _children_to_lines(repo_sole)
         return local_items, _parse_dsl_items(child_lines)
 
-    if len(local_wrappers) == 1 and _has_only_non_wrapper(repo_items):
-        # Local side re-declared the entity; repo side just has children.
-        block = local_wrappers[0]
-        child_lines = _children_to_lines(block)
+    if local_sole is not None and _has_no_wrappers(repo_items):
+        child_lines = _children_to_lines(local_sole)
         return _parse_dsl_items(child_lines), repo_items
 
     return local_items, repo_items
@@ -490,20 +503,46 @@ def _parse_dsl_items(lines: list[str]) -> list[dict]:
     return items
 
 
+_ANN_PREFIX = re.compile(
+    r'^\s*(?:@Override|@Overtake\s+Core|@DynamicComponentDependency\s+\S+|@CodeRegistration\s+\S+)\s*\n?',
+    re.IGNORECASE | re.MULTILINE,
+)
+
 def _dsl_item_key(item: dict) -> str:
     """
-    Canonical identity key for a DSL item.
+    Canonical identity key for a DSL item used for SequenceMatcher alignment.
 
-    For blocks: normalise the declaration header — collapse all whitespace to
-    single spaces so that indentation differences (@Override on different
-    indent levels, trailing spaces) don't cause false mismatches.
+    For blocks: strip annotation prefixes (@Override, @Overtake Core,
+    @DynamicComponentDependency) then normalise whitespace.  This ensures
+    that '@Override entity InventoryPart {' and 'entity InventoryPart {'
+    are treated as the SAME block so they get merged rather than duplicated.
 
-    For loose lines: stripped text (comments, history markers, blank lines).
+    For loose lines: stripped text.
     """
     if item["type"] == "block":
         raw = item["header"].strip()
-        return re.sub(r'\s+', ' ', raw)
+        # Strip all leading annotation lines, then normalise whitespace
+        stripped = _ANN_PREFIX.sub("", raw).strip()
+        return re.sub(r'\s+', ' ', stripped)
     return item["text"].strip()
+
+
+def _dsl_overtake_wins(local_it: dict, repo_it: dict) -> dict:
+    """
+    When both sides have the same block key but one carries @Overtake Core,
+    that version completely replaces the other (no child-merging).
+    Returns the winning item.
+    """
+    local_hdr = local_it.get("header", "")
+    repo_hdr  = repo_it.get("header", "")
+    local_overtake = bool(re.search(r'@Overtake\s+Core', local_hdr, re.IGNORECASE))
+    repo_overtake  = bool(re.search(r'@Overtake\s+Core', repo_hdr,  re.IGNORECASE))
+    if local_overtake and not repo_overtake:
+        return local_it
+    if repo_overtake and not local_overtake:
+        return repo_it
+    # Both override or neither — merge children
+    return _merge_dsl_block(local_it, repo_it)
 
 
 def _render_dsl_item(item: dict) -> list[str]:
@@ -522,19 +561,180 @@ def _render_dsl_item(item: dict) -> list[str]:
 
 # ── PL/SQL merge (.plsql, .plsvc, .pltst) ────────────────────────────────────
 
+_PLSQL_UNIT_START = re.compile(
+    r'^\s*(?:@Override\s+)?(PROCEDURE|FUNCTION)\s+(\w+)',
+    re.IGNORECASE,
+)
+_PLSQL_UNIT_END = re.compile(
+    r'^\s*END\s+(\w+)\s*;',
+    re.IGNORECASE,
+)
+_PLSQL_SECTION = re.compile(r'^-{4,}.*-{4,}\s*$')
+
+
 def _merge_plsql(local: list[str], repo: list[str]) -> str:
     """
-    Merge PL/SQL lines.
+    Merge PL/SQL lines (IFS .plsql / .plsvc / .pltst).
 
-    IFS PL/SQL files contain named PROCEDURE/FUNCTION units and IFS section
-    comment dividers (---- PUBLIC METHODS ----).  The correct resolution is
-    always to keep ALL content from both sides; the section dividers often
-    appear at different positions in local vs repo (one side has it at the
-    top of the conflict, the other at the bottom), so using sequence-diff
-    would collapse them to one occurrence.  Plain concatenation (local then
-    repo) is the correct and expected output.
+    IFS PL/SQL files are structured as named PROCEDURE/FUNCTION units
+    separated by IFS section dividers (---- PUBLIC METHODS ----).
+
+    Deduplication rules (matching IFS layering standards):
+    - Same-named unit on both sides → keep LOCAL version (it is the
+      working branch; repo changes are already present as the base).
+    - Unit only on one side → keep it.
+    - IFS section dividers → deduplicate by name (keep one occurrence).
+    - Preamble content (TYPE declarations, SUBTYPE, constants) → merge
+      using sequence-diff to avoid duplicating shared declarations.
+
+    Section header comment dividers (---- … ----) are kept once even
+    when both sides carry them at different positions.
     """
-    return _concat(local, repo)
+    local_units = _parse_plsql_units(local)
+    repo_units  = _parse_plsql_units(repo)
+
+    local_keys = [u["key"] for u in local_units]
+    repo_keys  = [u["key"] for u in repo_units]
+
+    matcher = difflib.SequenceMatcher(None, local_keys, repo_keys, autojunk=False)
+    merged: list[str] = []
+    seen_sections: set[str] = set()
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                unit = local_units[i1 + k]
+                if unit["kind"] == "section":
+                    key = unit["key"]
+                    if key not in seen_sections:
+                        seen_sections.add(key)
+                        merged.extend(unit["lines"])
+                else:
+                    merged.extend(unit["lines"])
+
+        elif tag == "delete":
+            # Local-only content — keep it
+            for u in local_units[i1:i2]:
+                if u["kind"] == "section":
+                    key = u["key"]
+                    if key not in seen_sections:
+                        seen_sections.add(key)
+                        merged.extend(u["lines"])
+                else:
+                    merged.extend(u["lines"])
+
+        elif tag == "insert":
+            # Repo-only content — keep it
+            for u in repo_units[j1:j2]:
+                if u["kind"] == "section":
+                    key = u["key"]
+                    if key not in seen_sections:
+                        seen_sections.add(key)
+                        merged.extend(u["lines"])
+                else:
+                    merged.extend(u["lines"])
+
+        elif tag == "replace":
+            local_chunk = local_units[i1:i2]
+            repo_chunk  = repo_units[j1:j2]
+
+            # For named procedure/function units: same name on both sides →
+            # keep local (branch version), discard repo duplicate.
+            local_proc_keys = {u["key"] for u in local_chunk if u["kind"] == "proc"}
+            for u in local_chunk:
+                if u["kind"] == "section":
+                    key = u["key"]
+                    if key not in seen_sections:
+                        seen_sections.add(key)
+                        merged.extend(u["lines"])
+                else:
+                    merged.extend(u["lines"])
+            for u in repo_chunk:
+                if u["kind"] == "proc" and u["key"] in local_proc_keys:
+                    continue   # duplicate — repo version already covered by local
+                if u["kind"] == "section":
+                    key = u["key"]
+                    if key not in seen_sections:
+                        seen_sections.add(key)
+                        merged.extend(u["lines"])
+                else:
+                    merged.extend(u["lines"])
+
+    return "".join(merged)
+
+
+def _parse_plsql_units(lines: list[str]) -> list[dict]:
+    """
+    Parse PL/SQL lines into units:
+      {"kind": "proc",    "key": "PROCEDURE_FOO",      "lines": [...]}
+      {"kind": "section", "key": "SECTION:---- PUB --", "lines": [...]}
+      {"kind": "other",   "key": "__other_N__",         "lines": [...]}
+
+    A unit starts at PROCEDURE/FUNCTION declaration (with optional @Override)
+    and ends at the matching END <name>; line.  Section dividers (---- … ----)
+    are captured as single-line units.  Everything else is "other".
+    """
+    units: list[dict] = []
+    current_lines: list[str] = []
+    current_kind  = "other"
+    current_key   = "__preamble__"
+    in_proc       = False
+    proc_name     = ""
+    depth         = 0   # BEGIN/END depth inside a proc body
+
+    _KW_BEGIN = re.compile(r'\bBEGIN\b', re.IGNORECASE)
+    _KW_END   = re.compile(r'\bEND\b',   re.IGNORECASE)
+
+    def flush():
+        nonlocal current_lines, current_kind, current_key
+        if current_lines:
+            units.append({"kind": current_kind, "key": current_key, "lines": current_lines})
+        current_lines = []
+        current_kind  = "other"
+        current_key   = f"__other_{len(units)}__"
+
+    for line in lines:
+        stripped = line.strip()
+
+        # IFS section divider  (---- PUBLIC METHODS ----)
+        if _PLSQL_SECTION.match(stripped) and not in_proc:
+            flush()
+            key = re.sub(r'\s+', ' ', stripped)
+            units.append({"kind": "section", "key": f"SECTION:{key}", "lines": [line]})
+            continue
+
+        # PROCEDURE / FUNCTION start
+        m = _PLSQL_UNIT_START.match(stripped)
+        if m and not in_proc:
+            flush()
+            proc_name   = m.group(2).upper()
+            current_kind = "proc"
+            current_key  = f"{m.group(1).upper()}_{proc_name}"
+            current_lines = [line]
+            in_proc = True
+            depth   = 0
+            continue
+
+        if in_proc:
+            current_lines.append(line)
+            # Track nested BEGIN/END to find the matching END <name>;
+            if _KW_BEGIN.search(stripped):
+                depth += 1
+            end_m = _PLSQL_UNIT_END.match(stripped)
+            if end_m and end_m.group(1).upper() == proc_name:
+                # Matched END <name>; — close this unit
+                flush()
+                in_proc = False
+                proc_name = ""
+                depth = 0
+            elif _KW_END.search(stripped) and depth > 0:
+                depth -= 1
+            continue
+
+        current_lines.append(line)
+
+    flush()
+    return units
 
 
 # ── DDL / CDB merge ───────────────────────────────────────────────────────────
@@ -567,10 +767,17 @@ def _merge_ddl(local: list[str], repo: list[str]) -> str:
             for b in repo_blocks[j1:j2]:
                 merged.extend(b["lines"])
         elif tag == "replace":
-            for b in local_blocks[i1:i2]:
+            local_chunk = local_blocks[i1:i2]
+            repo_chunk  = repo_blocks[j1:j2]
+            local_reg_keys = {b["key"] for b in local_chunk
+                              if not b["key"].startswith("__")}
+            for b in local_chunk:
                 merged.extend(b["lines"])
-            for b in repo_blocks[j1:j2]:
-                merged.extend(b["lines"])
+            for b in repo_chunk:
+                # Same @CodeRegistration name on both sides → keep local only.
+                # Different name → keep repo (additive, new migration script).
+                if b["key"] not in local_reg_keys:
+                    merged.extend(b["lines"])
 
     return "".join(merged)
 
@@ -600,13 +807,16 @@ def _parse_ddl_blocks(lines: list[str]) -> list[dict]:
 
 def _merge_xml_entity(local: list[str], repo: list[str]) -> str:
     """
-    Merge .entity XML lines.
+    Merge XML files: .entity (state machine / entity descriptor),
+    .utility (LU registration), .enumeration (enum value list).
 
-    The .entity XML format contains repeating child elements such as
-    <ATTRIBUTE>, <ASSOCIATION>, <COMMENT> each identified by a <NAME> child.
-    When both sides add a DIFFERENT named element we keep both.
-    When the conflict cuts through an element boundary (git doesn't know XML),
-    we fall back to plain concatenation.
+    Each top-level XML element is keyed by its <NAME> child (or <ID> for
+    diagram nodes).  Elements with the same key from both sides are
+    deduplicated — the local version is kept.  Elements with different
+    keys are kept from both sides (additive merge).
+
+    Falls back to plain concatenation when the XML cannot be parsed as a
+    clean sequence of top-level elements (e.g. conflict cuts mid-element).
     """
     local_elements = _parse_xml_elements(local)
     repo_elements  = _parse_xml_elements(repo)
@@ -631,10 +841,16 @@ def _merge_xml_entity(local: list[str], repo: list[str]) -> str:
             for e in repo_elements[j1:j2]:
                 merged.extend(e["lines"])
         elif tag == "replace":
-            for e in local_elements[i1:i2]:
+            local_chunk = local_elements[i1:i2]
+            repo_chunk  = repo_elements[j1:j2]
+            local_elem_keys = {e["key"] for e in local_chunk
+                               if not e["key"].startswith("__")}
+            for e in local_chunk:
                 merged.extend(e["lines"])
-            for e in repo_elements[j1:j2]:
-                merged.extend(e["lines"])
+            for e in repo_chunk:
+                # Same-named element already emitted from local → skip duplicate
+                if e["key"] not in local_elem_keys:
+                    merged.extend(e["lines"])
 
     return "".join(merged)
 
@@ -668,10 +884,14 @@ def _parse_xml_elements(lines: list[str]) -> list[dict] | None:
             depth = 1
         elif end_m and depth == 1 and end_m.group(1) == current_tag:
             current_lines.append(line)
-            # Extract <NAME> from children
             content = "".join(current_lines)
+            # Prefer <NAME> as identity key; fall back to <ID> (diagram nodes), then index
             nm = _XML_NAME_TAG.search(content)
-            key = f"{current_tag}:{nm.group(1).strip()}" if nm else f"{current_tag}:{len(elements)}"
+            if nm:
+                key = f"{current_tag}:{nm.group(1).strip()}"
+            else:
+                id_m = re.search(r'<ID>(.+?)</ID>', content, re.IGNORECASE)
+                key = f"{current_tag}:{id_m.group(1).strip()}" if id_m else f"{current_tag}:{len(elements)}"
             elements.append({"key": key, "lines": current_lines})
             current_tag   = None
             current_lines = []
@@ -704,9 +924,14 @@ def _merge_views(local: list[str], repo: list[str]) -> str:
     """
     Merge .views property-override blocks.
 
-    COLUMN X IS ... / VIEW X IS ... blocks are keyed by their name.
-    Blocks with different names → keep both.
-    Blocks with the same name → keep both (user resolves the difference).
+    IFS .views structure (keyed units):
+      COLUMN <Name> IS …  — shared column metadata definition
+      VIEW   <Name> IS …  — view-level property overrides
+
+    Deduplication rules:
+    - Different names → keep both (additive: two different columns/views)
+    - Same name, same kind → merge the two blocks' content line-by-line
+      with sequence-diff so properties from both sides are preserved
     """
     local_blocks = _parse_views_blocks(local)
     repo_blocks  = _parse_views_blocks(repo)
@@ -720,7 +945,13 @@ def _merge_views(local: list[str], repo: list[str]) -> str:
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             for k in range(i2 - i1):
-                merged.extend(local_blocks[i1 + k]["lines"])
+                lb = local_blocks[i1 + k]
+                rb = repo_blocks[j1 + k]
+                # Same-named block — merge the property lines, don't duplicate
+                if lb["key"] == rb["key"] and not lb["key"].startswith("__"):
+                    merged.extend(_merge_views_block(lb, rb))
+                else:
+                    merged.extend(lb["lines"])
         elif tag == "delete":
             for b in local_blocks[i1:i2]:
                 merged.extend(b["lines"])
@@ -728,12 +959,44 @@ def _merge_views(local: list[str], repo: list[str]) -> str:
             for b in repo_blocks[j1:j2]:
                 merged.extend(b["lines"])
         elif tag == "replace":
-            for b in local_blocks[i1:i2]:
+            local_chunk = local_blocks[i1:i2]
+            repo_chunk  = repo_blocks[j1:j2]
+            local_view_keys = {b["key"] for b in local_chunk
+                               if not b["key"].startswith("__")}
+            for b in local_chunk:
                 merged.extend(b["lines"])
-            for b in repo_blocks[j1:j2]:
-                merged.extend(b["lines"])
+            for b in repo_chunk:
+                # Same view/column name already emitted from local → skip duplicate
+                if b["key"] not in local_view_keys:
+                    merged.extend(b["lines"])
 
     return "".join(merged)
+
+
+def _merge_views_block(local_b: dict, repo_b: dict) -> list[str]:
+    """
+    Merge two same-named COLUMN/VIEW blocks by line-level sequence diff.
+    The header line (COLUMN X IS / VIEW X IS) is kept once; inner property
+    lines are merged so properties from both sides appear.
+    """
+    # First line of each is the header (COLUMN X IS / VIEW X IS)
+    header = local_b["lines"][:1]
+    local_body = local_b["lines"][1:]
+    repo_body  = repo_b["lines"][1:]
+
+    # Deduplicate property lines by property name (key = left side of '=')
+    def _prop_key(line: str) -> str:
+        m = re.match(r'\s*(\w+)\s*=', line)
+        return m.group(1).upper() if m else line.strip()
+
+    seen: dict[str, str] = {}
+    result: list[str] = list(header)
+    for line in local_body + repo_body:
+        k = _prop_key(line)
+        if k not in seen:
+            seen[k] = line
+            result.append(line)
+    return result
 
 
 def _parse_views_blocks(lines: list[str]) -> list[dict]:
