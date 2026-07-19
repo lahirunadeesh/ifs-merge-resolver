@@ -24,6 +24,8 @@ import uvicorn
 
 from core.conflict_scanner import scan_for_conflicts, parse_conflicts, apply_resolution
 from core.project_store import list_projects, add_project, delete_project, rename_project
+from core.core_registry import CoreFileRegistry
+from core.settings_store import get_setting, set_setting
 from licensing.machine_id import get_machine_id
 from licensing.validator import is_licensed, activate as do_activate, license_status
 
@@ -36,6 +38,11 @@ else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
+
+# ── Core registry startup ─────────────────────────────────────────────────────
+# Initialise with the stored core files directory (if configured).
+_core_dir = get_setting("core_files_dir", "")
+CoreFileRegistry.configure(_core_dir)
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -218,6 +225,28 @@ async def activate(req: ActivateRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ── Settings API ──────────────────────────────────────────────────────────────
+
+class SetCoreDir(BaseModel):
+    path: str
+
+@app.get("/api/settings/core-dir")
+async def get_core_dir():
+    path = get_setting("core_files_dir", "")
+    registry = CoreFileRegistry.instance()
+    return {"path": path, "active": bool(path and Path(path).exists())}
+
+@app.post("/api/settings/core-dir")
+async def set_core_dir(req: SetCoreDir):
+    p = req.path.strip()
+    if p and not Path(p).exists():
+        raise HTTPException(status_code=400, detail="Directory not found")
+    set_setting("core_files_dir", p)
+    # Reinitialise the registry so it picks up the new directory immediately
+    CoreFileRegistry.configure(p)
+    return {"path": p, "active": bool(p)}
 
 
 # ── Static files — must be mounted AFTER all API routes ──────────────────────

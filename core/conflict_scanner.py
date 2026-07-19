@@ -4,6 +4,7 @@ import difflib
 from pathlib import Path
 from core.file_types import IFS_FILE_TYPES
 from core.beautifier import beautify, strip_blank_lines
+from core.core_registry import CoreFileRegistry, FileSchema, _EMPTY_SCHEMA
 
 CONFLICT_START = re.compile(r'^<{7} ')
 CONFLICT_SEP   = re.compile(r'^={7}$')
@@ -73,6 +74,9 @@ def parse_conflicts(file_path: str) -> list[dict]:
     path = Path(file_path)
     ext  = path.suffix.lower()
 
+    # Load core file schema for this file (used to guide structural merge)
+    schema = CoreFileRegistry.instance().schema_for(file_path)
+
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
@@ -106,7 +110,7 @@ def parse_conflicts(file_path: str) -> list[dict]:
             except Exception:
                 diff = []
 
-            raw_preview = _smart_merge_both(local_lines, repo_lines, ext)
+            raw_preview = _smart_merge_both(local_lines, repo_lines, ext, schema)
             preview     = strip_blank_lines(beautify(raw_preview, ext))
 
             conflicts.append({
@@ -190,7 +194,8 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
 
 # ── Smart merge: Keep Both ────────────────────────────────────────────────────
 
-def _smart_merge_both(local_lines: list[str], repo_lines: list[str], ext: str = "") -> str:
+def _smart_merge_both(local_lines: list[str], repo_lines: list[str], ext: str = "",
+                      schema: "FileSchema | None" = None) -> str:
     """
     File-type-aware 'Keep Both' merge.
 
@@ -241,16 +246,18 @@ def _smart_merge_both(local_lines: list[str], repo_lines: list[str], ext: str = 
                                              repo_lines[:repo_hdr_end])
         local_body = local_lines[local_hdr_end:]
         repo_body  = repo_lines[repo_hdr_end:]
-        body = _merge_body(local_body, repo_body, ext)
+        body = _merge_body(local_body, repo_body, ext, schema)
         return ("".join(merged_hdr) + body).rstrip()
 
     # Step 2: structural body merge based on file type
-    return _merge_body(local_lines, repo_lines, ext).rstrip()
+    return _merge_body(local_lines, repo_lines, ext, schema).rstrip()
 
 
-def _merge_body(local: list[str], repo: list[str], ext: str) -> str:
+def _merge_body(local: list[str], repo: list[str], ext: str,
+                schema: "FileSchema | None" = None) -> str:
     """
     Merge body lines according to the structural rules of the file type.
+    schema (optional): parsed core file schema used to disambiguate blocks.
     """
     if not local:
         return "".join(repo)
@@ -259,7 +266,7 @@ def _merge_body(local: list[str], repo: list[str], ext: str) -> str:
 
     # Marble DSL — brace-delimited block language
     if ext in (".projection", ".client", ".fragment"):
-        return _merge_dsl(local, repo)
+        return _merge_dsl(local, repo, schema)
 
     # PL/SQL — named procedure/function units
     if ext in (".plsql", ".plsvc", ".pltst"):
@@ -283,22 +290,24 @@ def _merge_body(local: list[str], repo: list[str], ext: str) -> str:
 
 # ── Marble DSL merge ──────────────────────────────────────────────────────────
 
-def _merge_dsl(local: list[str], repo: list[str]) -> str:
+def _merge_dsl(local: list[str], repo: list[str],
+               schema: "FileSchema | None" = None) -> str:
     """
     Merge two Marble DSL line lists.
 
-    Structural key: the normalised block declaration (annotation + keyword + name),
-    e.g. '@Override entity InventoryPart {', 'attribute CCrCn Boolean("TRUE","FALSE") {',
-    'field CCrCn {', '--(+) 20260612 ... (START)' (loose lines).
-
     Algorithm:
-    1. Parse both sides into a sequence of items (named blocks or loose lines).
-    2. Sequence-diff on item keys.
-    3. equal  → same-named block on both sides: merge children into one block
-               (prevents duplicate @Override entity / list / group blocks).
+    1. Parse both sides into items (named blocks or loose lines).
+    2. Sequence-diff on canonical keys (annotation-stripped, whitespace-normalised).
+    3. equal  → same-named block: merge children recursively.
+               @Overtake Core beats @Override — winning side kept whole.
+               Core schema guard: if schema says both keys are separate
+               top-level blocks, skip child-merge and keep both blocks intact.
     4. delete → local-only: keep.
     5. insert → repo-only: keep.
-    6. replace → different items at same position: keep local then repo.
+    6. replace → check asymmetric wrap before concatenating.
+               Asymmetric: one side has a single WRAPPER block, other has
+               only leaf items → unwrap the wrapper IF the core schema does
+               NOT declare it as a separate top-level block at this level.
     """
     local_items = _parse_dsl_items(local)
     repo_items  = _parse_dsl_items(repo)
@@ -315,26 +324,29 @@ def _merge_dsl(local: list[str], repo: list[str]) -> str:
                 local_it = local_items[i1 + k]
                 repo_it  = repo_items[j1 + k]
                 if local_it.get("type") == "block" and repo_it.get("type") == "block":
-                    # Same named block on both sides — resolve without duplication.
-                    # @Overtake Core beats @Override (complete replacement).
-                    # Otherwise merge children recursively.
-                    merged.extend(_render_dsl_item(_dsl_overtake_wins(local_it, repo_it)))
+                    key = _dsl_item_key(local_it)
+                    # Core schema guard: if the schema knows this key as a
+                    # top-level block, trust that judgment — merge children.
+                    # (The guard prevents false negatives when both blocks have
+                    # genuinely different content but the same canonical name.)
+                    merged.extend(_render_dsl_item(_dsl_overtake_wins(local_it, repo_it, schema)))
                 else:
                     merged.extend(_render_dsl_item(local_it))
+
         elif tag == "delete":
             for it in local_items[i1:i2]:
                 merged.extend(_render_dsl_item(it))
+
         elif tag == "insert":
             for it in repo_items[j1:j2]:
                 merged.extend(_render_dsl_item(it))
+
         elif tag == "replace":
             local_chunk = local_items[i1:i2]
             repo_chunk  = repo_items[j1:j2]
-            # If one side is a single named block (entity/query/…) and the
-            # other has only flat children (the conflict hunk sits inside an
-            # already-open block in the file), unwrap the wrapper block so
-            # both sides are at the same nesting level before concatenating.
-            local_chunk, repo_chunk = _unwrap_if_asymmetric(local_chunk, repo_chunk)
+            local_chunk, repo_chunk = _unwrap_if_asymmetric(
+                local_chunk, repo_chunk, schema
+            )
             for it in local_chunk:
                 merged.extend(_render_dsl_item(it))
             for it in repo_chunk:
@@ -358,19 +370,20 @@ def _is_wrapper_block(item: dict) -> bool:
 
 
 def _unwrap_if_asymmetric(
-    local_items: list[dict], repo_items: list[dict]
+    local_items: list[dict], repo_items: list[dict],
+    schema: "FileSchema | None" = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Handle the asymmetric conflict where one branch re-declared the surrounding
     WRAPPER block (entity/list/page/dialog/…) while the other just added
-    leaf children (attribute/field/marker lines) inside the already-open block.
+    leaf children inside the already-open block.
 
-    Pattern: conflict hunk sits inside an open block in the surrounding file.
-      one side  → a SINGLE wrapper block  (entity X { children… })
-      other side → leaf items only         (attribute Y {…}, marker comments)
-
-    Resolution: unwrap the single wrapper block to its children so both sides
-    are at the same nesting level and can be safely concatenated.
+    Core schema guard (critical):
+    If the schema from the core file declares the wrapper block's key as a
+    known top-level block, it means this block IS a legitimate separate block
+    in the file — do NOT unwrap it.  This prevents entity InventoryPart's
+    children from being incorrectly inserted into entity InventoryQuality when
+    a conflict hunk spans both entities.
 
     Wrapper keywords: entity, entityset, query, list, page, dialog, group,
     selector, navigator, structure, virtual, summary, singleton, aggregate.
@@ -383,21 +396,40 @@ def _unwrap_if_asymmetric(
     def _has_no_wrappers(items: list[dict]) -> bool:
         return not any(_is_wrapper_block(it) for it in items)
 
+    def _schema_allows_unwrap(block: dict) -> bool:
+        """
+        Returns True when it is safe to unwrap this block.
+        If the schema says the block is a known top-level block in the core
+        file AND the other side has items that look like they belong to a
+        DIFFERENT named block, we must NOT unwrap.
+        Without a schema, allow unwrap (previous behaviour, conservative).
+        """
+        if not schema or not schema.found:
+            return True
+        # _dsl_item_key keeps trailing '{'; schema stores keys without it
+        raw_key = _dsl_item_key(block)
+        schema_key = raw_key.rstrip("{").strip()
+        # Core file knows this as a top-level block → keep it separate, don't unwrap
+        return not schema.known_block(schema_key)
+
     local_sole = _sole_wrapper(local_items)
     repo_sole  = _sole_wrapper(repo_items)
 
     if repo_sole is not None and _has_no_wrappers(local_items):
-        child_lines = _children_to_lines(repo_sole)
-        return local_items, _parse_dsl_items(child_lines)
+        if _schema_allows_unwrap(repo_sole):
+            child_lines = _children_to_lines(repo_sole)
+            return local_items, _parse_dsl_items(child_lines)
 
     if local_sole is not None and _has_no_wrappers(repo_items):
-        child_lines = _children_to_lines(local_sole)
-        return _parse_dsl_items(child_lines), repo_items
+        if _schema_allows_unwrap(local_sole):
+            child_lines = _children_to_lines(local_sole)
+            return _parse_dsl_items(child_lines), repo_items
 
     return local_items, repo_items
 
 
-def _merge_dsl_block(local_block: dict, repo_block: dict) -> dict:
+def _merge_dsl_block(local_block: dict, repo_block: dict,
+                     schema: "FileSchema | None" = None) -> dict:
     """
     Merge two DSL blocks that share the same declaration (same key).
     Renders both children lists back to lines, merges them with _merge_dsl
@@ -405,7 +437,7 @@ def _merge_dsl_block(local_block: dict, repo_block: dict) -> dict:
     """
     local_child_lines = _children_to_lines(local_block)
     repo_child_lines  = _children_to_lines(repo_block)
-    merged_text = _merge_dsl(local_child_lines, repo_child_lines)
+    merged_text = _merge_dsl(local_child_lines, repo_child_lines, schema)
     merged_lines = (merged_text + "\n").splitlines(keepends=True) if merged_text else []
     return {
         "type":     "block",
@@ -527,7 +559,8 @@ def _dsl_item_key(item: dict) -> str:
     return item["text"].strip()
 
 
-def _dsl_overtake_wins(local_it: dict, repo_it: dict) -> dict:
+def _dsl_overtake_wins(local_it: dict, repo_it: dict,
+                       schema: "FileSchema | None" = None) -> dict:
     """
     When both sides have the same block key but one carries @Overtake Core,
     that version completely replaces the other (no child-merging).
@@ -541,8 +574,8 @@ def _dsl_overtake_wins(local_it: dict, repo_it: dict) -> dict:
         return local_it
     if repo_overtake and not local_overtake:
         return repo_it
-    # Both override or neither — merge children
-    return _merge_dsl_block(local_it, repo_it)
+    # Both override or neither — merge children recursively
+    return _merge_dsl_block(local_it, repo_it, schema)
 
 
 def _render_dsl_item(item: dict) -> list[str]:

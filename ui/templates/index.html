@@ -13,6 +13,20 @@
 
     <main>
 
+        <!-- ── Core Files Directory ── -->
+        <section id="coreFilesSection">
+            <div class="section-header">
+                <h2>IFS Core Files</h2>
+                <span id="coreDirStatus" class="core-status"></span>
+            </div>
+            <p class="core-hint">Point to your IFS Developer Studio core files directory (e.g. <code>Core-Files/25R2</code>). The tool uses this as a structural reference to make smarter merge decisions.</p>
+            <div class="path-row">
+                <div class="path-display" id="coreDirDisplay">Not configured</div>
+                <button class="btn-small" onclick="browseCoreDir()">Browse…</button>
+                <button class="btn-small btn-clear-core" onclick="clearCoreDir()" id="clearCoreDirBtn" style="display:none;">Clear</button>
+            </div>
+        </section>
+
         <!-- ── Saved Projects ── -->
         <section id="projectsSection">
             <div class="section-header">

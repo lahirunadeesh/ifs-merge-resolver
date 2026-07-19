@@ -112,6 +112,47 @@ button:disabled:hover { background: #b2bec3; }
 }
 .btn-small:hover { background: #0773c5; }
 
+/* ── Core Files section ── */
+#coreFilesSection {
+    background: #f0f7ff;
+    border: 1px solid #c3dafe;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 4px;
+}
+#coreFilesSection .section-header { margin-bottom: 6px; }
+.core-hint {
+    font-size: 12.5px;
+    color: #4a5568;
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+.core-hint code {
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+}
+.path-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.core-status {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 10px;
+}
+.core-status.active   { background: #d1fae5; color: #065f46; }
+.core-status.inactive { background: #fee2e2; color: #991b1b; }
+.btn-clear-core {
+    background: #e53e3e !important;
+}
+.btn-clear-core:hover { background: #c53030 !important; }
+
 /* ── Project cards ── */
 #projectList { display: flex; flex-direction: column; gap: 10px; }
 

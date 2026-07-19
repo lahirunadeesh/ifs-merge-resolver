@@ -6,7 +6,70 @@ let selectedPath     = null;
 let editingProjectId = null;   // null = new project, string = editing existing
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", loadProjects);
+document.addEventListener("DOMContentLoaded", () => {
+    loadProjects();
+    loadCoreDir();
+});
+
+// ── Core Files Directory ───────────────────────────────────────────────────────
+
+async function loadCoreDir() {
+    const res  = await fetch("/api/settings/core-dir");
+    const data = await res.json();
+    _renderCoreDir(data);
+}
+
+function _renderCoreDir(data) {
+    const display = document.getElementById("coreDirDisplay");
+    const status  = document.getElementById("coreDirStatus");
+    const clearBtn = document.getElementById("clearCoreDirBtn");
+    if (data.path && data.active) {
+        display.textContent = data.path;
+        display.title       = data.path;
+        status.textContent  = "✓ Active";
+        status.className    = "core-status active";
+        clearBtn.style.display = "inline-block";
+    } else if (data.path && !data.active) {
+        display.textContent = data.path + "  (directory not found)";
+        status.textContent  = "⚠ Not found";
+        status.className    = "core-status inactive";
+        clearBtn.style.display = "inline-block";
+    } else {
+        display.textContent = "Not configured";
+        status.textContent  = "";
+        status.className    = "core-status";
+        clearBtn.style.display = "none";
+    }
+}
+
+async function browseCoreDir() {
+    const res  = await fetch("/api/browse");
+    const data = await res.json();
+    if (!data.path) return;
+    const res2 = await fetch("/api/settings/core-dir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: data.path }),
+    });
+    if (!res2.ok) {
+        const err = await res2.json();
+        showNotification(err.detail || "Could not set core directory.", "error");
+        return;
+    }
+    const saved = await res2.json();
+    _renderCoreDir(saved);
+    showNotification("Core files directory saved. Schema-guided merge is now active.", "success");
+}
+
+async function clearCoreDir() {
+    await fetch("/api/settings/core-dir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "" }),
+    });
+    _renderCoreDir({ path: "", active: false });
+    showNotification("Core files directory cleared.", "info");
+}
 
 // ── Projects ──────────────────────────────────────────────────────────────────
 
