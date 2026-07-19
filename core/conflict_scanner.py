@@ -298,6 +298,36 @@ def _merge_body(local: list[str], repo: list[str], ext: str,
 
 # ── Marble DSL merge ──────────────────────────────────────────────────────────
 
+def _merge_item_lists(local_items: list[dict], repo_items: list[dict],
+                      schema: "FileSchema | None" = None) -> list[dict]:
+    """
+    Merge two already-parsed DSL item lists using SequenceMatcher.
+    Used after _unwrap_if_asymmetric to merge the flattened children without
+    duplicating items that appear on both sides.
+    """
+    local_keys = [_dsl_item_key(it) for it in local_items]
+    repo_keys  = [_dsl_item_key(it) for it in repo_items]
+    matcher = difflib.SequenceMatcher(None, local_keys, repo_keys, autojunk=False)
+    result: list[dict] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                l_it = local_items[i1 + k]
+                r_it = repo_items[j1 + k]
+                if l_it.get("type") == "block" and r_it.get("type") == "block":
+                    result.append(_dsl_overtake_wins(l_it, r_it, schema))
+                else:
+                    result.append(l_it)
+        elif tag == "delete":
+            result.extend(local_items[i1:i2])
+        elif tag == "insert":
+            result.extend(repo_items[j1:j2])
+        elif tag == "replace":
+            result.extend(local_items[i1:i2])
+            result.extend(repo_items[j1:j2])
+    return result
+
+
 def _merge_dsl(local: list[str], repo: list[str],
                schema: "FileSchema | None" = None) -> str:
     """
@@ -345,11 +375,19 @@ def _merge_dsl(local: list[str], repo: list[str],
         elif tag == "replace":
             local_chunk = local_items[i1:i2]
             repo_chunk  = repo_items[j1:j2]
-            local_chunk, repo_chunk = _unwrap_if_asymmetric(
+            local_chunk, repo_chunk, did_unwrap = _unwrap_if_asymmetric(
                 local_chunk, repo_chunk, schema
             )
-            merged_items.extend(local_chunk)
-            merged_items.extend(repo_chunk)
+            if did_unwrap:
+                # Unwrapping changed the item lists — re-run SequenceMatcher on
+                # the new lists so shared items (same attribute on both sides)
+                # are merged rather than duplicated.
+                merged_items.extend(
+                    _merge_item_lists(local_chunk, repo_chunk, schema)
+                )
+            else:
+                merged_items.extend(local_chunk)
+                merged_items.extend(repo_chunk)
 
     # Reorder top-level blocks to follow core file structure.
     # New (Cust-layer) blocks not present in the core file go at the end.
@@ -405,39 +443,51 @@ def _unwrap_if_asymmetric(
         return not any(_is_wrapper_block(it) for it in items)
 
     def _has_unmatched_close(items: list[dict]) -> bool:
-        """True when any line item is a standalone '}' — that brace closes a
-        block opened BEFORE this conflict hunk (the conflict crosses a boundary).
-        Unwrapping in this case would produce malformed output."""
         return any(
             it.get("type") == "line" and it.get("text", "").strip() == "}"
             for it in items
         )
 
-    def _schema_allows_unwrap(block: dict) -> bool:
-        if not schema or not schema.found:
-            return True
-        raw_key = _dsl_item_key(block)
-        schema_key = raw_key.rstrip("{").strip()
-        # Core file knows this as a top-level block → keep it separate, don't unwrap
-        return not schema.known_block(schema_key)
+    def _should_unwrap(wrapper: dict, flat_has_close: bool) -> bool:
+        """
+        Decide whether to unwrap 'wrapper' given that the flat side may have
+        an unmatched closing brace.
+
+        Three cases:
+        A) flat_has_close=False  — conflict is cleanly inside an open block.
+           Both sides talk about the SAME entity context → always unwrap.
+
+        B) flat_has_close=True, wrapper.footer is not None (complete block)
+           — flat side closes the outer block, wrapper ALSO closes itself within
+           the hunk.  This means the wrapper is a re-declaration of the SAME
+           entity (common in Cust layers that use @Override entity X { ... }).
+           → unwrap and merge children.
+
+        C) flat_has_close=True, wrapper.footer is None (unclosed block)
+           — flat side closes the outer block, wrapper is NOT closed in the hunk
+           (its '}' is outside the conflict markers, i.e. it is a brand-new
+           separate top-level entity added by the repo branch).
+           → do NOT unwrap; keep both sides intact.
+        """
+        if not flat_has_close:
+            return True                            # Case A
+        return wrapper.get("footer") is not None   # Case B=True, Case C=False
 
     local_sole = _sole_wrapper(local_items)
     repo_sole  = _sole_wrapper(repo_items)
 
+    # Returns (local_items, repo_items, did_unwrap)
     if repo_sole is not None and _has_no_wrappers(local_items):
-        # Never unwrap when the flat side has an unmatched closing brace — the
-        # conflict spans a block boundary and the wrapper block is a genuine
-        # separate top-level block (even if the core schema doesn't know it yet).
-        if not _has_unmatched_close(local_items) and _schema_allows_unwrap(repo_sole):
+        if _should_unwrap(repo_sole, _has_unmatched_close(local_items)):
             child_lines = _children_to_lines(repo_sole)
-            return local_items, _parse_dsl_items(child_lines)
+            return local_items, _parse_dsl_items(child_lines), True
 
     if local_sole is not None and _has_no_wrappers(repo_items):
-        if not _has_unmatched_close(repo_items) and _schema_allows_unwrap(local_sole):
+        if _should_unwrap(local_sole, _has_unmatched_close(repo_items)):
             child_lines = _children_to_lines(local_sole)
-            return _parse_dsl_items(child_lines), repo_items
+            return _parse_dsl_items(child_lines), repo_items, True
 
-    return local_items, repo_items
+    return local_items, repo_items, False
 
 
 def _merge_dsl_block(local_block: dict, repo_block: dict,
