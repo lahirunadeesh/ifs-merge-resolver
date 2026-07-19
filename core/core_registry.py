@@ -69,12 +69,22 @@ class FileSchema:
     core_path:        str           = ""
     # Canonical (lower-cased, annotation-stripped) keys of ALL top-level blocks.
     top_level_keys:   set[str]      = field(default_factory=set)
+    # Same keys in the ORDER they appear in the core file (for output ordering).
+    ordered_keys:     list[str]     = field(default_factory=list)
     # Component name as declared in the file (upper-case).
     component:        str           = ""
 
     def known_block(self, canonical_key: str) -> bool:
         """True when the key matches a top-level block in the core file."""
         return canonical_key.lower() in self.top_level_keys
+
+    def core_order(self, canonical_key: str) -> int:
+        """Position of key in the core file (-1 if unknown / new block)."""
+        k = canonical_key.lower()
+        try:
+            return self.ordered_keys.index(k)
+        except ValueError:
+            return -1
 
     def is_separate_from(self, key_a: str, key_b: str) -> bool:
         """
@@ -152,13 +162,14 @@ class CoreFileRegistry:
         if not core_path:
             return _EMPTY_SCHEMA
 
-        # Parse top-level block structure
-        keys = self._extract_top_level_keys(core_path, ext)
+        # Parse top-level block structure (ordered list + fast-lookup set)
+        ordered = self._extract_top_level_keys(core_path, ext)
 
         return FileSchema(
             found=True,
             core_path=str(core_path),
-            top_level_keys={k.lower() for k in keys},
+            top_level_keys={k.lower() for k in ordered},
+            ordered_keys=[k.lower() for k in ordered],
             component=component,
         )
 
@@ -202,15 +213,23 @@ class CoreFileRegistry:
         for c in candidates:
             if c.exists():
                 return c
+
+        # Last-resort: recursive glob across the entire core directory.
+        # Excludes Cust/Ext/Overlay layer files so we only match core files.
+        _LAYER = re.compile(r'[-_](?:Cust|Ext\d*|Customer|Extension|Custext|Overlay)', re.IGNORECASE)
+        for p in self.core_dir.rglob(f"{base}{ext}"):
+            if not _LAYER.search(p.stem):
+                return p
+
         return None
 
-    def _extract_top_level_keys(self, core_path: Path, ext: str) -> set[str]:
-        """Parse the core file and return canonical top-level block keys."""
+    def _extract_top_level_keys(self, core_path: Path, ext: str) -> list[str]:
+        """Parse the core file and return canonical top-level block keys in order."""
         try:
             text = core_path.read_text(encoding="utf-8", errors="ignore")
             lines = text.splitlines(keepends=True)
         except Exception:
-            return set()
+            return []
 
         if ext in (".projection", ".client", ".fragment"):
             return _parse_dsl_top_level_keys(lines)
@@ -222,7 +241,7 @@ class CoreFileRegistry:
             return _parse_xml_top_level_keys(lines)
         elif ext == ".views":
             return _parse_views_top_level_keys(lines)
-        return set()
+        return []
 
 
 # ── File-type parsers ─────────────────────────────────────────────────────────
@@ -241,9 +260,10 @@ def _canonical_key(header: str) -> str:
     return re.sub(r'\s+', ' ', stripped).lower()
 
 
-def _parse_dsl_top_level_keys(lines: list[str]) -> set[str]:
-    """Extract top-level named block keys from a DSL file."""
-    keys: set[str] = set()
+def _parse_dsl_top_level_keys(lines: list[str]) -> list[str]:
+    """Extract top-level named block keys from a DSL file, in file order."""
+    keys: list[str] = []
+    seen: set[str] = set()
     depth = 0
     pending: list[str] = []
 
@@ -254,23 +274,22 @@ def _parse_dsl_top_level_keys(lines: list[str]) -> set[str]:
                 pending = []
             continue
 
-        # Annotation prefix lines
+        # Annotation prefix lines (only accumulate at top level)
         if _ANN_LINE.match(stripped):
             if depth == 0:
                 pending.append(line)
             continue
 
         # Block open
-        if stripped.endswith("{") and depth == 0:
-            pending.append(line)
-            header = "".join(pending)
-            key = _canonical_key(header)
-            if key:
-                keys.add(key)
-            pending = []
-            depth = 1
-            continue
-        elif stripped.endswith("{"):
+        if stripped.endswith("{"):
+            if depth == 0:
+                pending.append(line)
+                header = "".join(pending)
+                key = _canonical_key(header)
+                if key and key not in seen:
+                    keys.append(key)
+                    seen.add(key)
+                pending = []
             depth += 1
             continue
 
@@ -278,45 +297,64 @@ def _parse_dsl_top_level_keys(lines: list[str]) -> set[str]:
         if _DSL_CLOSE.match(stripped):
             if depth > 0:
                 depth -= 1
-            pending = []
+            if depth == 0:
+                pending = []
             continue
 
         if depth == 0:
-            pending = []
+            # Non-annotation, non-block line at top level — reset pending
+            if not _ANN_LINE.match(stripped):
+                pending = []
 
     return keys
 
 
-def _parse_plsql_top_level_keys(lines: list[str]) -> set[str]:
-    keys: set[str] = set()
+def _parse_plsql_top_level_keys(lines: list[str]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
     for line in lines:
         m = _PLSQL_UNIT.match(line)
         if m:
-            keys.add(f"{m.group(1).upper()} {m.group(2).upper()}")
+            k = f"{m.group(1).upper()} {m.group(2).upper()}"
+            if k not in seen:
+                keys.append(k)
+                seen.add(k)
     return keys
 
 
-def _parse_ddl_top_level_keys(lines: list[str]) -> set[str]:
-    keys: set[str] = set()
+def _parse_ddl_top_level_keys(lines: list[str]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
     for line in lines:
         m = _CODE_REG.match(line)
         if m:
-            keys.add(m.group(1).upper())
+            k = m.group(1).upper()
+            if k not in seen:
+                keys.append(k)
+                seen.add(k)
     return keys
 
 
-def _parse_xml_top_level_keys(lines: list[str]) -> set[str]:
-    keys: set[str] = set()
+def _parse_xml_top_level_keys(lines: list[str]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
     text = "".join(lines)
     for m in _XML_NAME.finditer(text):
-        keys.add(m.group(1).strip().lower())
+        k = m.group(1).strip().lower()
+        if k not in seen:
+            keys.append(k)
+            seen.add(k)
     return keys
 
 
-def _parse_views_top_level_keys(lines: list[str]) -> set[str]:
-    keys: set[str] = set()
+def _parse_views_top_level_keys(lines: list[str]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
     for line in lines:
         m = _VIEWS_BLOCK.match(line)
         if m:
-            keys.add(m.group(1).upper())
+            k = m.group(1).upper()
+            if k not in seen:
+                keys.append(k)
+                seen.add(k)
     return keys

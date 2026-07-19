@@ -34,6 +34,13 @@ _PLSQL_UNIT = re.compile(
 # ── DDL @CodeRegistration block (.ddlsource / .cdb) ──────────────────────────
 _CODE_REG = re.compile(r'^\s*@CodeRegistration\s+(\S+)', re.IGNORECASE)
 
+# ── IFS annotation line (marks the NEXT block, belongs to its header) ─────────
+# Only @-prefixed annotations qualify; change markers (--(+)...) do NOT.
+_ANN_LINE = re.compile(
+    r'^\s*(?:@Override|@Overtake\s+Core|@DynamicComponentDependency\s+\S+|@CodeRegistration\s+\S+)\s*$',
+    re.IGNORECASE,
+)
+
 
 def scan_for_conflicts(root_path: str) -> list[dict]:
     results = []
@@ -111,6 +118,7 @@ def parse_conflicts(file_path: str) -> list[dict]:
                 diff = []
 
             raw_preview = _smart_merge_both(local_lines, repo_lines, ext, schema)
+            raw_preview = _validate_braces(local_lines, repo_lines, raw_preview)
             preview     = strip_blank_lines(beautify(raw_preview, ext))
 
             conflicts.append({
@@ -316,7 +324,7 @@ def _merge_dsl(local: list[str], repo: list[str],
     repo_keys  = [_dsl_item_key(it) for it in repo_items]
 
     matcher = difflib.SequenceMatcher(None, local_keys, repo_keys, autojunk=False)
-    merged: list[str] = []
+    merged_items: list[dict] = []
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
@@ -324,22 +332,15 @@ def _merge_dsl(local: list[str], repo: list[str],
                 local_it = local_items[i1 + k]
                 repo_it  = repo_items[j1 + k]
                 if local_it.get("type") == "block" and repo_it.get("type") == "block":
-                    key = _dsl_item_key(local_it)
-                    # Core schema guard: if the schema knows this key as a
-                    # top-level block, trust that judgment — merge children.
-                    # (The guard prevents false negatives when both blocks have
-                    # genuinely different content but the same canonical name.)
-                    merged.extend(_render_dsl_item(_dsl_overtake_wins(local_it, repo_it, schema)))
+                    merged_items.append(_dsl_overtake_wins(local_it, repo_it, schema))
                 else:
-                    merged.extend(_render_dsl_item(local_it))
+                    merged_items.append(local_it)
 
         elif tag == "delete":
-            for it in local_items[i1:i2]:
-                merged.extend(_render_dsl_item(it))
+            merged_items.extend(local_items[i1:i2])
 
         elif tag == "insert":
-            for it in repo_items[j1:j2]:
-                merged.extend(_render_dsl_item(it))
+            merged_items.extend(repo_items[j1:j2])
 
         elif tag == "replace":
             local_chunk = local_items[i1:i2]
@@ -347,10 +348,17 @@ def _merge_dsl(local: list[str], repo: list[str],
             local_chunk, repo_chunk = _unwrap_if_asymmetric(
                 local_chunk, repo_chunk, schema
             )
-            for it in local_chunk:
-                merged.extend(_render_dsl_item(it))
-            for it in repo_chunk:
-                merged.extend(_render_dsl_item(it))
+            merged_items.extend(local_chunk)
+            merged_items.extend(repo_chunk)
+
+    # Reorder top-level blocks to follow core file structure.
+    # New (Cust-layer) blocks not present in the core file go at the end.
+    if schema and schema.found:
+        merged_items = _reorder_by_schema(merged_items, schema)
+
+    merged: list[str] = []
+    for it in merged_items:
+        merged.extend(_render_dsl_item(it))
 
     return "".join(merged)
 
@@ -396,17 +404,18 @@ def _unwrap_if_asymmetric(
     def _has_no_wrappers(items: list[dict]) -> bool:
         return not any(_is_wrapper_block(it) for it in items)
 
+    def _has_unmatched_close(items: list[dict]) -> bool:
+        """True when any line item is a standalone '}' — that brace closes a
+        block opened BEFORE this conflict hunk (the conflict crosses a boundary).
+        Unwrapping in this case would produce malformed output."""
+        return any(
+            it.get("type") == "line" and it.get("text", "").strip() == "}"
+            for it in items
+        )
+
     def _schema_allows_unwrap(block: dict) -> bool:
-        """
-        Returns True when it is safe to unwrap this block.
-        If the schema says the block is a known top-level block in the core
-        file AND the other side has items that look like they belong to a
-        DIFFERENT named block, we must NOT unwrap.
-        Without a schema, allow unwrap (previous behaviour, conservative).
-        """
         if not schema or not schema.found:
             return True
-        # _dsl_item_key keeps trailing '{'; schema stores keys without it
         raw_key = _dsl_item_key(block)
         schema_key = raw_key.rstrip("{").strip()
         # Core file knows this as a top-level block → keep it separate, don't unwrap
@@ -416,12 +425,15 @@ def _unwrap_if_asymmetric(
     repo_sole  = _sole_wrapper(repo_items)
 
     if repo_sole is not None and _has_no_wrappers(local_items):
-        if _schema_allows_unwrap(repo_sole):
+        # Never unwrap when the flat side has an unmatched closing brace — the
+        # conflict spans a block boundary and the wrapper block is a genuine
+        # separate top-level block (even if the core schema doesn't know it yet).
+        if not _has_unmatched_close(local_items) and _schema_allows_unwrap(repo_sole):
             child_lines = _children_to_lines(repo_sole)
             return local_items, _parse_dsl_items(child_lines)
 
     if local_sole is not None and _has_no_wrappers(repo_items):
-        if _schema_allows_unwrap(local_sole):
+        if not _has_unmatched_close(repo_items) and _schema_allows_unwrap(local_sole):
             child_lines = _children_to_lines(local_sole)
             return _parse_dsl_items(child_lines), repo_items
 
@@ -465,16 +477,27 @@ def _parse_dsl_items(lines: list[str]) -> list[dict]:
       {'type': 'line',  'text': str}
 
     Rules:
-    - Annotations (@Override, @DynamicComponentDependency, @Overtake, etc.) appearing
-      before a block opener are accumulated as part of that block's header.
+    - Only true @-annotation lines (@Override, @DynamicComponentDependency, etc.)
+      appearing immediately before a block opener are accumulated into that block's
+      header.  IFS change markers (--(+)...) and other comment lines are stored as
+      independent line items — they are NOT merged into a following block's header.
+    - A closing '}' that appears when the stack is empty is stored as a plain line
+      item.  It means the conflict hunk crosses a block boundary (the brace closes
+      a block that was opened BEFORE the hunk started).
     - A block is added to its parent (or to the top-level items list) only when it
       CLOSES — not when it opens — to avoid double-append.
     - Unclosed blocks at end of input are flushed with footer=None (the closing brace
       was outside the conflict hunk).
     """
     items: list[dict] = []
-    stack: list[dict] = []          # currently open (unclosed) blocks
-    pending: list[str] = []         # annotation/comment lines waiting for next opener
+    stack: list[dict] = []     # currently open (unclosed) blocks
+    pending: list[str] = []    # @-annotation lines waiting for the next block opener
+
+    def _flush_pending_as_lines() -> None:
+        """Emit any queued pending lines as plain line items (no block followed)."""
+        for p in pending:
+            items.append({"type": "line", "text": p})
+        pending.clear()
 
     for line in lines:
         stripped = line.strip()
@@ -484,40 +507,50 @@ def _parse_dsl_items(lines: list[str]) -> list[dict]:
             if stack:
                 stack[-1]["children"].append(line)
             else:
-                # Blank lines between top-level blocks: treat as loose items
+                _flush_pending_as_lines()
                 items.append({"type": "line", "text": line})
-                pending = []   # blank line resets any dangling pending lines
             continue
 
         # ── closing brace ─────────────────────────────────────────────────────
-        if _DSL_BLOCK_CLOSE.match(stripped) and stack:
-            block = stack.pop()
-            block["footer"] = line
-            pending = []
+        if _DSL_BLOCK_CLOSE.match(stripped):
             if stack:
-                # Nested block — add to parent's children NOW (on close)
-                stack[-1]["children"].append(block)
+                block = stack.pop()
+                block["footer"] = line
+                pending.clear()
+                if stack:
+                    stack[-1]["children"].append(block)
+                else:
+                    items.append(block)
             else:
-                items.append(block)
+                # Unmatched close: the hunk crosses a block boundary.
+                # Store as a plain line so _has_unmatched_close() can detect it.
+                _flush_pending_as_lines()
+                items.append({"type": "line", "text": line})
             continue
 
         # ── opening brace (block header) ──────────────────────────────────────
         if _DSL_BLOCK_OPEN.search(stripped) and stripped.endswith("{"):
             pending.append(line)
             header = "".join(pending)
-            pending = []
+            pending.clear()
             new_block: dict = {"type": "block", "header": header, "children": [], "footer": None}
-            # Push to stack; add to parent only when this block CLOSES (see above)
-            stack.append(new_block)
+            if stack:
+                stack.append(new_block)
+            else:
+                stack.append(new_block)
             continue
 
-        # ── regular line (or annotation prefix for next block) ────────────────
+        # ── regular line ──────────────────────────────────────────────────────
         if stack:
             stack[-1]["children"].append(line)
-        else:
-            # Outside all blocks: could be @Override/@DynamicComponentDependency
-            # that belongs to the NEXT block opener — keep in pending
+        elif _ANN_LINE.match(stripped):
+            # True @-annotation — belongs to the NEXT block opener
             pending.append(line)
+        else:
+            # Change marker, comment, or bare text: emit immediately.
+            # Flush any preceding annotation lines that didn't find a block.
+            _flush_pending_as_lines()
+            items.append({"type": "line", "text": line})
 
     # ── end of input: flush any unclosed blocks ───────────────────────────────
     while stack:
@@ -528,9 +561,8 @@ def _parse_dsl_items(lines: list[str]) -> list[dict]:
         else:
             items.append(block)
 
-    # Flush remaining pending lines (annotations with no following block)
-    for l in pending:
-        items.append({"type": "line", "text": l})
+    # Flush any trailing annotation lines that had no following block
+    _flush_pending_as_lines()
 
     return items
 
@@ -539,6 +571,109 @@ _ANN_PREFIX = re.compile(
     r'^\s*(?:@Override|@Overtake\s+Core|@DynamicComponentDependency\s+\S+|@CodeRegistration\s+\S+)\s*\n?',
     re.IGNORECASE | re.MULTILINE,
 )
+
+
+# ── Brace validation ──────────────────────────────────────────────────────────
+
+def _net_braces(text: str) -> int:
+    """Count '{' minus '}', ignoring characters inside string literals."""
+    depth = 0
+    in_str = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == '"' and not in_str:
+            in_str = True
+        elif ch == '"' and in_str:
+            in_str = False
+        elif not in_str:
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+        i += 1
+    return depth
+
+
+def _validate_braces(local_lines: list[str], repo_lines: list[str], merged: str) -> str:
+    """
+    Compare the brace balance of the merged output against the combined inputs.
+    If the merge introduced extra or missing braces, append a warning comment so
+    the developer is alerted without the tool making potentially wrong auto-fixes.
+
+    A conflict hunk is often INSIDE a block, so both sides having net < 0 is
+    normal (the outer close is outside the hunk).  We compare relative balance:
+    merged_net should equal local_net + repo_net when nothing was lost or doubled.
+    For 'Keep Both' semantics the merged output may legitimately differ — we only
+    warn when the difference is outside a reasonable range.
+    """
+    local_net  = _net_braces("".join(local_lines))
+    repo_net   = _net_braces("".join(repo_lines))
+    merged_net = _net_braces(merged)
+
+    # When both sides have the same net, the merged output should too
+    if local_net == repo_net and merged_net != local_net:
+        delta = merged_net - local_net
+        sign = "+" if delta > 0 else ""
+        merged = merged.rstrip() + (
+            f"\n-- [MERGE WARNING: brace mismatch detected (net {sign}{delta})."
+            f" Please review bracket balance before committing.]\n"
+        )
+    return merged
+
+
+# ── Core-file-guided block ordering ──────────────────────────────────────────
+
+def _reorder_by_schema(items: list[dict], schema: "FileSchema") -> list[dict]:
+    """
+    Reorder top-level block items to match the order in the core file.
+    - Blocks whose key is known to the core file appear in core-file order.
+    - New blocks (Cust-layer additions not in the core file) are appended after
+      known blocks, preserving their relative order among themselves.
+    - Loose line items (change markers, blank lines) stay grouped with the block
+      they immediately precede in the current sequence.
+    """
+    if not schema or not schema.found or not schema.ordered_keys:
+        return items
+
+    # Group items into (leading_lines, block) pairs + trailing lines
+    groups: list[tuple[list[dict], dict | None]] = []
+    leading: list[dict] = []
+    for it in items:
+        if it.get("type") == "line":
+            leading.append(it)
+        else:
+            groups.append((leading, it))
+            leading = []
+    trailing = leading  # any lines after the last block
+
+    if not groups:
+        return items  # no blocks to reorder
+
+    # Separate known (core-file) blocks from new (Cust-layer) blocks
+    known: list[tuple[int, list[dict], dict]] = []   # (core_index, leading_lines, block)
+    new_blocks: list[tuple[list[dict], dict]]  = []  # (leading_lines, block)
+
+    for lead, block in groups:
+        raw_key = _dsl_item_key(block).rstrip("{").strip()
+        idx = schema.core_order(raw_key)
+        if idx >= 0:
+            known.append((idx, lead, block))
+        else:
+            new_blocks.append((lead, block))
+
+    known.sort(key=lambda x: x[0])
+
+    result: list[dict] = []
+    for _, lead, block in known:
+        result.extend(lead)
+        result.append(block)
+    for lead, block in new_blocks:
+        result.extend(lead)
+        result.append(block)
+    result.extend(trailing)
+    return result
+
 
 def _dsl_item_key(item: dict) -> str:
     """
