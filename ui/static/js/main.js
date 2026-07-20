@@ -429,7 +429,10 @@ function showStrategyPreview(strategy) {
     const label = document.getElementById("previewLabel");
     label.textContent = PREVIEW_LABELS[strategy];
     label.className = "pane-label preview-label preview-label-" + strategy;
-    document.getElementById("previewPane").style.display = "block";
+    const pane = document.getElementById("previewPane");
+    pane.className = strategy === "both" ? "" : "strategy-" + strategy;
+    pane.style.display = "block";
+    pane.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 async function openSourceFile() {
