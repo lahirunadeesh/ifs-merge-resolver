@@ -232,11 +232,55 @@ def _build_preview_block(lines: list[str], start: int, end: int,
         return strip_blank_lines(beautify(raw_preview, ext,
                                           _prefix_depth(lines, start)))
 
-    body = raw_preview if raw_preview.endswith("\n") else raw_preview + "\n"
-    combined = "".join(prefix) + body + "".join(suffix)
     base = _prefix_depth(lines, start) - sum(
         l.count("{") - l.count("}") for l in prefix)
+
+    prefix, suffix = _truncate_context(prefix, suffix)
+
+    body = raw_preview if raw_preview.endswith("\n") else raw_preview + "\n"
+    combined = "".join(prefix) + body + "".join(suffix)
     return beautify(combined.rstrip(), ext, max(0, base))
+
+
+_CTX_LINES = 5          # context lines kept adjacent to the conflict
+_ELLIPSIS  = "...\n"    # marker for elided context
+
+
+def _truncate_context(prefix: list[str], suffix: list[str]
+                      ) -> tuple[list[str], list[str]]:
+    """
+    Keep only the relevant part of the surrounding block: annotations +
+    block header, _CTX_LINES lines either side of the conflict, and the
+    closing brace.  Elided middles are replaced with a '...' line and are
+    always brace-BALANCED so the beautifier's depth tracking stays correct.
+    """
+    def _net(seg: list[str]) -> int:
+        return sum(l.count("{") - l.count("}") for l in seg)
+
+    # ── prefix: [annotations + opener] … [last _CTX_LINES before conflict]
+    head_end = 0
+    for k, l in enumerate(prefix):
+        if l.strip().endswith("{"):
+            head_end = k + 1
+            break
+    head   = prefix[:head_end]
+    middle = prefix[head_end:len(prefix) - _CTX_LINES]
+    tail   = prefix[max(head_end, len(prefix) - _CTX_LINES):]
+    # shrink the elision until it is brace-balanced
+    while middle and _net(middle) != 0:
+        tail.insert(0, middle.pop())
+    if middle:
+        prefix = head + [_ELLIPSIS] + tail
+    # ── suffix: [first _CTX_LINES after conflict] … [closing brace]
+    if len(suffix) > _CTX_LINES + 1:
+        head   = suffix[:_CTX_LINES]
+        middle = suffix[_CTX_LINES:-1]
+        tail   = [suffix[-1]]
+        while middle and _net(middle) != 0:
+            head.append(middle.pop(0))
+        if middle:
+            suffix = head + [_ELLIPSIS] + tail
+    return prefix, suffix
 
 
 def parse_conflicts(file_path: str) -> list[dict]:

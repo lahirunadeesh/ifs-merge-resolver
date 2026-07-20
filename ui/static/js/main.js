@@ -328,12 +328,8 @@ function renderConflict() {
     renderDiff(diffData);
 
     const previewPane = document.getElementById("previewPane");
-    if (c.preview && c.local && c.repo) {
-        showStrategyPreview("both");
-        previewPane.style.display = "block";
-    } else {
-        previewPane.style.display = "none";
-    }
+    // Preview pane stays hidden until the user hovers a Keep button.
+    previewPane.style.display = "none";
     setInfoMessage("", "");
 }
 
@@ -438,10 +434,16 @@ function showStrategyPreview(strategy) {
         strategy === "local" ? (c.local_block || c.local) :
         strategy === "repo"  ? (c.repo_block  || c.repo)  :
                                (c.preview_block || c.preview);
-    document.getElementById("previewCode").innerHTML = highlightDsl(content || "");
+    if (!content) return;
+    document.getElementById("previewCode").innerHTML = highlightDsl(content);
     const label = document.getElementById("previewLabel");
     label.textContent = PREVIEW_LABELS[strategy];
     label.className = "pane-label preview-label preview-label-" + strategy;
+    document.getElementById("previewPane").style.display = "block";
+}
+
+function hideStrategyPreview() {
+    document.getElementById("previewPane").style.display = "none";
 }
 
 async function openSourceFile() {
