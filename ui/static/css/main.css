@@ -428,17 +428,37 @@ button:disabled:hover { background: #b2bec3; }
 .preview-label-local { color: #00b894; }
 .preview-label-repo  { color: #d63031; }
 
-.inline-confirm {
+.preview-header {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 10px 14px;
+    background: rgba(108, 92, 231, 0.08);
+    border-bottom: 1px solid #a29bfe;
 }
-.inline-confirm span {
-    flex: 1;
+.preview-header-text { flex: 1; min-width: 0; }
+.preview-header-text .pane-label { padding: 0 0 2px 0; }
+.preview-confirm-msg {
+    display: block;
+    font-size: 12.5px;
+    opacity: 0.8;
+}
+.btn-preview-cancel,
+.btn-preview-apply {
+    padding: 9px 20px;
+    border: none;
+    border-radius: 6px;
     font-size: 13px;
-    opacity: 0.85;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+    white-space: nowrap;
+    transition: filter .15s, transform .1s;
 }
+.btn-preview-cancel { background: #576574; }
+.btn-preview-cancel:hover { filter: brightness(1.15); }
+.btn-preview-apply:hover { filter: brightness(1.12); transform: translateY(-1px); }
+.btn-preview-apply:active { transform: translateY(0); }
 .btn-open-file:hover { background: #46525f; }
 
 /* ── Keep Both preview ── */

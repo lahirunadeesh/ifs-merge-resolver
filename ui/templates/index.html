@@ -104,13 +104,15 @@
             </div>
 
             <div id="previewPane" style="display:none;">
-                <div class="pane-label preview-label" id="previewLabel">Keep Both — merged preview</div>
-                <pre id="previewCode"></pre>
-                <div class="inline-confirm">
-                    <span id="inlineConfirmMsg"></span>
-                    <button class="btn-cancel" onclick="cancelResolve()">Cancel</button>
-                    <button id="inlineConfirmBtn" onclick="confirmResolve()">Apply</button>
+                <div class="preview-header">
+                    <div class="preview-header-text">
+                        <div class="pane-label preview-label" id="previewLabel">Keep Both — merged preview</div>
+                        <span id="inlineConfirmMsg" class="preview-confirm-msg"></span>
+                    </div>
+                    <button class="btn-preview-cancel" onclick="cancelResolve()">✕ Cancel</button>
+                    <button id="inlineConfirmBtn" class="btn-preview-apply" onclick="confirmResolve()">✓ Apply</button>
                 </div>
+                <pre id="previewCode"></pre>
             </div>
 
             <div id="infoMessage" class="info-message" style="display:none;"></div>

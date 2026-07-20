@@ -359,7 +359,9 @@ function resolve(strategy) {
     // no popup, the preview at the bottom is the confirmation context.
     showStrategyPreview(strategy);
     document.getElementById("inlineConfirmMsg").textContent = info.text;
-    document.getElementById("inlineConfirmBtn").className = info.btnClass;
+    // Keep the base style; btnClass supplies the strategy colour.
+    document.getElementById("inlineConfirmBtn").className =
+        "btn-preview-apply " + info.btnClass;
 }
 
 function cancelResolve() {
