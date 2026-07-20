@@ -97,14 +97,17 @@
             <div class="diff-view" id="diffView"></div>
 
             <div id="previewPane" style="display:none;">
-                <div class="pane-label preview-label">Keep Both — merged preview</div>
+                <div class="pane-label preview-label" id="previewLabel">Keep Both — merged preview</div>
                 <pre id="previewCode"></pre>
             </div>
 
             <div class="actions">
-                <button class="btn-local" onclick="resolve('local')">Keep Local</button>
-                <button class="btn-repo" onclick="resolve('repo')">Keep Repo</button>
-                <button class="btn-both" onclick="resolve('both')">Keep Both</button>
+                <button class="btn-local" onclick="resolve('local')"
+                        onmouseenter="showStrategyPreview('local')" onmouseleave="showStrategyPreview('both')">Keep Local</button>
+                <button class="btn-repo" onclick="resolve('repo')"
+                        onmouseenter="showStrategyPreview('repo')" onmouseleave="showStrategyPreview('both')">Keep Repo</button>
+                <button class="btn-both" onclick="resolve('both')"
+                        onmouseenter="showStrategyPreview('both')">Keep Both</button>
                 <button class="btn-open-file" onclick="openSourceFile()" title="Open this file in your default editor">Open File</button>
             </div>
 

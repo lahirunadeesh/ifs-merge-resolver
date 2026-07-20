@@ -425,6 +425,8 @@ button:disabled:hover { background: #b2bec3; }
 .btn-both  { background: #6c5ce7; }
 .btn-both:hover  { background: #5a4bd1; }
 .btn-open-file { background: #576574; margin-left: auto; }
+.preview-label-local { color: #00b894; }
+.preview-label-repo  { color: #d63031; }
 .btn-open-file:hover { background: #46525f; }
 
 /* ── Keep Both preview ── */

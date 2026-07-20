@@ -292,6 +292,19 @@ def parse_conflicts(file_path: str) -> list[dict]:
             except Exception:
                 preview_block = preview
 
+            # Block-context previews of each single side, so the UI can show
+            # what Keep Local / Keep Repo would produce in place.
+            try:
+                local_block = _build_preview_block(
+                    lines, start, end, "".join(local_lines).rstrip(), ext)
+            except Exception:
+                local_block = local_text
+            try:
+                repo_block = _build_preview_block(
+                    lines, start, end, "".join(repo_lines).rstrip(), ext)
+            except Exception:
+                repo_block = repo_text
+
             conflicts.append({
                 "index":         len(conflicts),
                 "local":         local_text,
@@ -300,6 +313,8 @@ def parse_conflicts(file_path: str) -> list[dict]:
                 "end_line":      end,
                 "preview":       preview,
                 "preview_block": preview_block,
+                "local_block":   local_block,
+                "repo_block":    repo_block,
                 "diff":          diff,
             })
         i += 1

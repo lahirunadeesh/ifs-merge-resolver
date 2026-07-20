@@ -329,10 +329,7 @@ function renderConflict() {
 
     const previewPane = document.getElementById("previewPane");
     if (c.preview && c.local && c.repo) {
-        // Show the full enclosing block ({ ... }) when available so the
-        // developer sees exactly where the merged changes land.
-        document.getElementById("previewCode").innerHTML =
-            highlightDsl(c.preview_block || c.preview);
+        showStrategyPreview("both");
         previewPane.style.display = "block";
     } else {
         previewPane.style.display = "none";
@@ -423,6 +420,28 @@ async function confirmResolve() {
     } else {
         renderConflict();
     }
+}
+
+// Switch the preview pane to show what the given strategy would produce.
+// Full-block context (preview_block / local_block / repo_block) is preferred;
+// falls back to the raw hunk content for older server responses.
+const PREVIEW_LABELS = {
+    local: "Keep Local — preview",
+    repo:  "Keep Repo — preview",
+    both:  "Keep Both — merged preview",
+};
+
+function showStrategyPreview(strategy) {
+    const c = currentConflicts[currentIndex];
+    if (!c) return;
+    const content =
+        strategy === "local" ? (c.local_block || c.local) :
+        strategy === "repo"  ? (c.repo_block  || c.repo)  :
+                               (c.preview_block || c.preview);
+    document.getElementById("previewCode").innerHTML = highlightDsl(content || "");
+    const label = document.getElementById("previewLabel");
+    label.textContent = PREVIEW_LABELS[strategy];
+    label.className = "pane-label preview-label preview-label-" + strategy;
 }
 
 async function openSourceFile() {
