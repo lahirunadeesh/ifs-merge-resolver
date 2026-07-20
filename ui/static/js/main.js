@@ -425,6 +425,19 @@ async function confirmResolve() {
     }
 }
 
+async function openSourceFile() {
+    if (!currentFile) return;
+    const res = await fetch("/api/open-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: currentFile })
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showNotification(d.detail || "Could not open the file.", "error");
+    }
+}
+
 // ── Diff rendering ────────────────────────────────────────────────────────────
 
 function buildFallbackDiff(local, repo) {

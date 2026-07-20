@@ -424,6 +424,8 @@ button:disabled:hover { background: #b2bec3; }
 .btn-repo:hover  { background: #b52a2a; }
 .btn-both  { background: #6c5ce7; }
 .btn-both:hover  { background: #5a4bd1; }
+.btn-open-file { background: #576574; margin-left: auto; }
+.btn-open-file:hover { background: #46525f; }
 
 /* ── Keep Both preview ── */
 #previewPane {

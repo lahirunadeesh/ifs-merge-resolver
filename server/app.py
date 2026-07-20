@@ -171,6 +171,25 @@ async def get_conflicts(req: ConflictRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/api/open-file")
+async def open_file(req: ConflictRequest):
+    """Open the conflict file in the OS default editor."""
+    path = Path(req.file)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+    try:
+        system = platform.system()
+        if system == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        elif system == "Windows":
+            os.startfile(str(path))  # noqa: attribute exists on Windows
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/resolve")
 async def resolve(req: ResolveRequest):
     try:
