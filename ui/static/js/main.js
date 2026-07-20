@@ -355,35 +355,20 @@ function resolve(strategy) {
     const c    = currentConflicts[currentIndex];
     pendingStrategy = strategy;
 
-    // Show the relevant code section for the selected strategy.
+    // Show the relevant code section with an inline Apply/Cancel bar —
+    // no popup, the preview at the bottom is the confirmation context.
     showStrategyPreview(strategy);
-
-    document.getElementById("modalTitle").textContent =
-        strategy === "local" ? "Keep Local Changes" :
-        strategy === "repo"  ? "Keep Repo Changes"  : "Keep Both Changes";
-    document.getElementById("modalMessage").textContent = info.text;
-
-    const lines = strategy === "both"
-        ? (c.preview || "").split("\n")
-        : strategy === "local"
-            ? (c.local || "").split("\n")
-            : (c.repo  || "").split("\n");
-
-    document.getElementById("modalPreview").innerHTML = highlightDsl(lines.join("\n"));
-    document.getElementById("modalPreviewWrap").style.display =
-        lines.some(l => l.trim()) ? "block" : "none";
-
-    document.getElementById("modalConfirmBtn").className = info.btnClass;
-    document.getElementById("modalOverlay").style.display = "flex";
+    document.getElementById("inlineConfirmMsg").textContent = info.text;
+    document.getElementById("inlineConfirmBtn").className = info.btnClass;
 }
 
 function cancelResolve() {
     pendingStrategy = null;
-    document.getElementById("modalOverlay").style.display = "none";
+    document.getElementById("previewPane").style.display = "none";
 }
 
 async function confirmResolve() {
-    document.getElementById("modalOverlay").style.display = "none";
+    document.getElementById("previewPane").style.display = "none";
     const strategy = pendingStrategy;
     pendingStrategy = null;
 

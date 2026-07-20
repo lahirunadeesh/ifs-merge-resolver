@@ -427,6 +427,18 @@ button:disabled:hover { background: #b2bec3; }
 .btn-open-file { background: #576574; margin-left: auto; }
 .preview-label-local { color: #00b894; }
 .preview-label-repo  { color: #d63031; }
+
+.inline-confirm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+}
+.inline-confirm span {
+    flex: 1;
+    font-size: 13px;
+    opacity: 0.85;
+}
 .btn-open-file:hover { background: #46525f; }
 
 /* ── Keep Both preview ── */
