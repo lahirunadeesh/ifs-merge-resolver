@@ -102,6 +102,49 @@ def _prefix_depth(lines: list[str], upto: int) -> int:
     return max(0, depth)
 
 
+def _canonical_header_key(header: str) -> str:
+    """Annotation-stripped, brace-stripped, whitespace-normalised lower key."""
+    stripped = re.sub(
+        r'^\s*(?:@Override|@Overtake\s+Core|@DynamicComponentDependency\s+\S+|'
+        r'@CodeRegistration\s+\S+)\s*$',
+        '', header.strip(), flags=re.IGNORECASE | re.MULTILINE,
+    ).strip()
+    stripped = stripped.rstrip("{").strip()
+    return re.sub(r'\s+', ' ', stripped).lower()
+
+
+def _open_context_key(lines: list[str], upto: int) -> str:
+    """
+    Canonical key of the innermost block still OPEN at line index `upto`
+    ('' when at top level).  Earlier conflict hunks count only their local
+    side, mirroring _prefix_depth.
+    """
+    stack: list[str] = []
+    in_repo_side = False
+    for line in lines[:upto]:
+        r = line.rstrip()
+        if CONFLICT_START.match(line):
+            in_repo_side = False
+            continue
+        if CONFLICT_SEP.match(r):
+            in_repo_side = True
+            continue
+        if CONFLICT_END.match(line):
+            in_repo_side = False
+            continue
+        if in_repo_side:
+            continue
+        stripped = line.strip()
+        net = line.count("{") - line.count("}")
+        if net > 0 and stripped.endswith("{"):
+            stack.append(_canonical_header_key(stripped))
+        elif net < 0:
+            for _ in range(-net):
+                if stack:
+                    stack.pop()
+    return stack[-1] if stack else ""
+
+
 def parse_conflicts(file_path: str) -> list[dict]:
     path = Path(file_path)
     ext  = path.suffix.lower()
@@ -143,7 +186,9 @@ def parse_conflicts(file_path: str) -> list[dict]:
             except Exception:
                 diff = []
 
-            raw_preview = _smart_merge_both(local_lines, repo_lines, ext, schema)
+            context_key = _open_context_key(lines, start)
+            raw_preview = _smart_merge_both(local_lines, repo_lines, ext, schema,
+                                            context_key)
             raw_preview = _validate_braces(local_lines, repo_lines, raw_preview)
             preview     = strip_blank_lines(beautify(raw_preview, ext, base_depth))
 
@@ -229,7 +274,8 @@ def _build_diff(local_lines: list[str], repo_lines: list[str], start_line: int) 
 # ── Smart merge: Keep Both ────────────────────────────────────────────────────
 
 def _smart_merge_both(local_lines: list[str], repo_lines: list[str], ext: str = "",
-                      schema: "FileSchema | None" = None) -> str:
+                      schema: "FileSchema | None" = None,
+                      context_key: str = "") -> str:
     """
     File-type-aware 'Keep Both' merge.
 
@@ -280,15 +326,16 @@ def _smart_merge_both(local_lines: list[str], repo_lines: list[str], ext: str = 
                                              repo_lines[:repo_hdr_end])
         local_body = local_lines[local_hdr_end:]
         repo_body  = repo_lines[repo_hdr_end:]
-        body = _merge_body(local_body, repo_body, ext, schema)
+        body = _merge_body(local_body, repo_body, ext, schema, context_key)
         return ("".join(merged_hdr) + body).rstrip()
 
     # Step 2: structural body merge based on file type
-    return _merge_body(local_lines, repo_lines, ext, schema).rstrip()
+    return _merge_body(local_lines, repo_lines, ext, schema, context_key).rstrip()
 
 
 def _merge_body(local: list[str], repo: list[str], ext: str,
-                schema: "FileSchema | None" = None) -> str:
+                schema: "FileSchema | None" = None,
+                context_key: str = "") -> str:
     """
     Merge body lines according to the structural rules of the file type.
     schema (optional): parsed core file schema used to disambiguate blocks.
@@ -300,7 +347,7 @@ def _merge_body(local: list[str], repo: list[str], ext: str,
 
     # Marble DSL — brace-delimited block language
     if ext in (".projection", ".client", ".fragment"):
-        return _merge_dsl(local, repo, schema)
+        return _merge_dsl(local, repo, schema, context_key)
 
     # PL/SQL — named procedure/function units
     if ext in (".plsql", ".plsvc", ".pltst"):
@@ -355,7 +402,8 @@ def _merge_item_lists(local_items: list[dict], repo_items: list[dict],
 
 
 def _merge_dsl(local: list[str], repo: list[str],
-               schema: "FileSchema | None" = None) -> str:
+               schema: "FileSchema | None" = None,
+               context_key: str = "") -> str:
     """
     Merge two Marble DSL line lists.
 
@@ -402,7 +450,7 @@ def _merge_dsl(local: list[str], repo: list[str],
             local_chunk = local_items[i1:i2]
             repo_chunk  = repo_items[j1:j2]
             local_chunk, repo_chunk, did_unwrap, trailer = _unwrap_if_asymmetric(
-                local_chunk, repo_chunk, schema
+                local_chunk, repo_chunk, schema, context_key
             )
             if did_unwrap:
                 # Re-run SequenceMatcher on the unwrapped children so shared
@@ -446,6 +494,7 @@ def _is_wrapper_block(item: dict) -> bool:
 def _unwrap_if_asymmetric(
     local_items: list[dict], repo_items: list[dict],
     schema: "FileSchema | None" = None,
+    context_key: str = "",
 ) -> tuple[list[dict], list[dict]]:
     """
     Handle the asymmetric conflict where one branch re-declared the surrounding
@@ -496,7 +545,16 @@ def _unwrap_if_asymmetric(
            (its '}' is outside the conflict markers, i.e. it is a brand-new
            separate top-level entity added by the repo branch).
            → do NOT unwrap; keep both sides intact.
+
+        Name guard (all cases): when the surrounding open block is known
+        (context_key), the wrapper is only ever unwrapped if it re-declares
+        that SAME block.  entity InventoryParts must never be unwrapped into
+        entity InventoryPart just because it happens to close inside the hunk.
         """
+        if context_key:
+            wrapper_key = _canonical_header_key(wrapper.get("header", ""))
+            if wrapper_key != context_key:
+                return False                       # different block name
         if not flat_has_close:
             return True                            # Case A
         return wrapper.get("footer") is not None   # Case B=True, Case C=False
