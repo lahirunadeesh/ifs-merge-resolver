@@ -355,6 +355,9 @@ function resolve(strategy) {
     const c    = currentConflicts[currentIndex];
     pendingStrategy = strategy;
 
+    // Show the relevant code section for the selected strategy.
+    showStrategyPreview(strategy);
+
     document.getElementById("modalTitle").textContent =
         strategy === "local" ? "Keep Local Changes" :
         strategy === "repo"  ? "Keep Repo Changes"  : "Keep Both Changes";
@@ -440,10 +443,6 @@ function showStrategyPreview(strategy) {
     label.textContent = PREVIEW_LABELS[strategy];
     label.className = "pane-label preview-label preview-label-" + strategy;
     document.getElementById("previewPane").style.display = "block";
-}
-
-function hideStrategyPreview() {
-    document.getElementById("previewPane").style.display = "none";
 }
 
 async function openSourceFile() {
