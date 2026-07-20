@@ -329,7 +329,10 @@ function renderConflict() {
 
     const previewPane = document.getElementById("previewPane");
     if (c.preview && c.local && c.repo) {
-        document.getElementById("previewCode").innerHTML = highlightDsl(c.preview);
+        // Show the full enclosing block ({ ... }) when available so the
+        // developer sees exactly where the merged changes land.
+        document.getElementById("previewCode").innerHTML =
+            highlightDsl(c.preview_block || c.preview);
         previewPane.style.display = "block";
     } else {
         previewPane.style.display = "none";

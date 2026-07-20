@@ -145,6 +145,100 @@ def _open_context_key(lines: list[str], upto: int) -> str:
     return stack[-1] if stack else ""
 
 
+_BRACE_EXTS = (".projection", ".client", ".fragment", ".utility", ".enumeration")
+
+
+def _build_preview_block(lines: list[str], start: int, end: int,
+                         raw_preview: str, ext: str) -> str:
+    """
+    Merged preview WITH surrounding context: the entire enclosing block
+    (opening header line down to its closing brace) so the developer sees
+    where the merged content lands.
+
+    Brace-based files: walk back to the innermost unclosed block opener and
+    forward to the brace that closes it.  Other file types: expand to the
+    surrounding blank-line-delimited paragraph.
+    """
+    def _local_side_lines(upto: int):
+        """Yield (idx, line) for lines[:upto], keeping only the local side
+        of any earlier conflict hunks (matches _prefix_depth semantics)."""
+        in_repo_side = False
+        for idx in range(upto):
+            line = lines[idx]
+            r = line.rstrip()
+            if CONFLICT_START.match(line) or CONFLICT_END.match(line):
+                in_repo_side = False
+                continue
+            if CONFLICT_SEP.match(r):
+                in_repo_side = True
+                continue
+            if in_repo_side:
+                continue
+            yield idx, line
+
+    prefix: list[str] = []
+    suffix: list[str] = []
+
+    if ext in _BRACE_EXTS:
+        # Backward: find the line index of the innermost unclosed opener.
+        stack: list[int] = []
+        for idx, line in _local_side_lines(start):
+            stripped = line.strip()
+            net = line.count("{") - line.count("}")
+            if net > 0 and stripped.endswith("{"):
+                stack.append(idx)
+            elif net < 0:
+                for _ in range(-net):
+                    if stack:
+                        stack.pop()
+
+        if stack:
+            opener = stack[-1]
+            # Include @-annotation lines directly above the opener
+            # (@Override, @Overtake Core, @DynamicComponentDependency, …).
+            while opener > 0 and lines[opener - 1].strip().startswith("@"):
+                opener -= 1
+            prefix = [lines[k] for k, _ in
+                      ((i, l) for i, l in _local_side_lines(start) if i >= opener)]
+            # Forward: consume until every block opened in prefix + merged
+            # preview is closed.  Count the PREVIEW's braces (not the hunk's
+            # local side) — the preview is what the pane displays.
+            depth = 0
+            for l in prefix:
+                depth += l.count("{") - l.count("}")
+            depth += raw_preview.count("{") - raw_preview.count("}")
+
+            k = end + 1
+            while k < len(lines) and depth > 0:
+                if CONFLICT_START.match(lines[k]):
+                    break  # another conflict starts — cut the context here
+                suffix.append(lines[k])
+                depth += lines[k].count("{") - lines[k].count("}")
+                k += 1
+    else:
+        # Paragraph context for non-brace file types.
+        k = start - 1
+        while k >= 0 and lines[k].strip():
+            prefix.insert(0, lines[k])
+            k -= 1
+        k = end + 1
+        while k < len(lines) and lines[k].strip():
+            if CONFLICT_START.match(lines[k]):
+                break
+            suffix.append(lines[k])
+            k += 1
+
+    if not prefix and not suffix:
+        return strip_blank_lines(beautify(raw_preview, ext,
+                                          _prefix_depth(lines, start)))
+
+    body = raw_preview if raw_preview.endswith("\n") else raw_preview + "\n"
+    combined = "".join(prefix) + body + "".join(suffix)
+    base = _prefix_depth(lines, start) - sum(
+        l.count("{") - l.count("}") for l in prefix)
+    return beautify(combined.rstrip(), ext, max(0, base))
+
+
 def parse_conflicts(file_path: str) -> list[dict]:
     path = Path(file_path)
     ext  = path.suffix.lower()
@@ -192,14 +286,21 @@ def parse_conflicts(file_path: str) -> list[dict]:
             raw_preview = _validate_braces(local_lines, repo_lines, raw_preview)
             preview     = strip_blank_lines(beautify(raw_preview, ext, base_depth))
 
+            try:
+                preview_block = _build_preview_block(lines, start, end,
+                                                     raw_preview, ext)
+            except Exception:
+                preview_block = preview
+
             conflicts.append({
-                "index":      len(conflicts),
-                "local":      local_text,
-                "repo":       repo_text,
-                "start_line": start,
-                "end_line":   end,
-                "preview":    preview,
-                "diff":       diff,
+                "index":         len(conflicts),
+                "local":         local_text,
+                "repo":          repo_text,
+                "start_line":    start,
+                "end_line":      end,
+                "preview":       preview,
+                "preview_block": preview_block,
+                "diff":          diff,
             })
         i += 1
 
