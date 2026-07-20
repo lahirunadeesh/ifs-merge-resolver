@@ -90,7 +90,7 @@ app = BUNDLE(
     bundle_identifier='com.lahirunadeesh.ifsmerge',
     info_plist={
         'NSHighResolutionCapable': True,
-        'CFBundleShortVersionString': '3.0.0',
+        'CFBundleShortVersionString': '3.0.1',
         'CFBundleName': 'IFS Merge Resolver',
     },
 )
