@@ -630,6 +630,13 @@ def _merge_dsl(local: list[str], repo: list[str],
     if schema and schema.found:
         merged_items = _reorder_by_schema(merged_items, schema)
 
+    # If the conflict sits inside an open block (context_key) and the merged
+    # result starts a DIFFERENT top-level wrapper without first closing the
+    # open block, synthesize the missing '}' — otherwise the new entity would
+    # be nested inside the previous one in the resolved file.
+    if context_key:
+        merged_items = _close_context_before_new_wrapper(merged_items, context_key)
+
     merged: list[str] = []
     for it in merged_items:
         merged.extend(_render_dsl_item(it))
@@ -649,6 +656,31 @@ _DSL_WRAPPER_KW = re.compile(
 def _is_wrapper_block(item: dict) -> bool:
     return (item.get("type") == "block"
             and bool(_DSL_WRAPPER_KW.search(item.get("header", ""))))
+
+
+def _close_context_before_new_wrapper(items: list[dict],
+                                      context_key: str) -> list[dict]:
+    """
+    The conflict hunk lives inside an open block (e.g. entity InventoryPart).
+    If the merged items start a different-named wrapper block whose own '}'
+    lies OUTSIDE the hunk (footer is None) and no unmatched '}' appeared
+    before it, the open block was never closed — the new wrapper would nest
+    inside it.  Insert the missing '}' right before the new wrapper; the
+    post-conflict '}' in the file then closes the new wrapper instead.
+    """
+    for idx, it in enumerate(items):
+        if it.get("type") == "line" and it.get("text", "").strip() == "}":
+            return items          # context already closed within the hunk
+        if _is_wrapper_block(it):
+            key = _canonical_header_key(it.get("header", ""))
+            if key == context_key:
+                continue          # re-declaration of the same block — fine
+            if it.get("footer") is None:
+                return (items[:idx]
+                        + [{"type": "line", "text": "}\n"}]
+                        + items[idx:])
+            return items          # complete wrapper — braces already balance
+    return items
 
 
 def _unwrap_if_asymmetric(
