@@ -77,6 +77,31 @@ def _has_conflict_markers(file_path: Path) -> bool:
     return False
 
 
+def _prefix_depth(lines: list[str], upto: int) -> int:
+    """
+    Brace nesting depth of the file at line index `upto`.
+    Earlier conflict hunks count only their local (HEAD) side so the depth
+    reflects what the resolved file will look like.
+    """
+    depth = 0
+    in_repo_side = False
+    for line in lines[:upto]:
+        r = line.rstrip()
+        if CONFLICT_START.match(line):
+            in_repo_side = False
+            continue
+        if CONFLICT_SEP.match(r):
+            in_repo_side = True
+            continue
+        if CONFLICT_END.match(line):
+            in_repo_side = False
+            continue
+        if in_repo_side:
+            continue
+        depth += line.count("{") - line.count("}")
+    return max(0, depth)
+
+
 def parse_conflicts(file_path: str) -> list[dict]:
     path = Path(file_path)
     ext  = path.suffix.lower()
@@ -106,8 +131,9 @@ def parse_conflicts(file_path: str) -> list[dict]:
                 i += 1
 
             end = i
-            local_text = beautify("".join(local_lines).rstrip(), ext)
-            repo_text  = beautify("".join(repo_lines).rstrip(), ext)
+            base_depth = _prefix_depth(lines, start)
+            local_text = beautify("".join(local_lines).rstrip(), ext, base_depth)
+            repo_text  = beautify("".join(repo_lines).rstrip(), ext, base_depth)
 
             local_b = [l + "\n" for l in local_text.splitlines()] if local_text else []
             repo_b  = [l + "\n" for l in repo_text.splitlines()]  if repo_text  else []
@@ -119,7 +145,7 @@ def parse_conflicts(file_path: str) -> list[dict]:
 
             raw_preview = _smart_merge_both(local_lines, repo_lines, ext, schema)
             raw_preview = _validate_braces(local_lines, repo_lines, raw_preview)
-            preview     = strip_blank_lines(beautify(raw_preview, ext))
+            preview     = strip_blank_lines(beautify(raw_preview, ext, base_depth))
 
             conflicts.append({
                 "index":      len(conflicts),
@@ -1393,7 +1419,8 @@ def apply_resolution(file_path: str, resolutions: list[dict]) -> None:
                 resolved = conflict["preview"]
 
             if resolved:
-                output.append(beautify(resolved, ext) + "\n")
+                base_depth = _prefix_depth(lines, i)
+                output.append(beautify(resolved, ext, base_depth) + "\n")
             i = conflict["end_line"] + 1
         else:
             output.append(lines[i])

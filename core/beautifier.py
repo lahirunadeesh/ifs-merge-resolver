@@ -4,8 +4,13 @@ import xml.dom.minidom as minidom
 
 # ── Public entry point ─────────────────────────────────────────────────────────
 
-def beautify(text: str, extension: str) -> str:
-    """Format text according to IFS file-type conventions."""
+def beautify(text: str, extension: str, base_depth: int = 0) -> str:
+    """Format text according to IFS file-type conventions.
+
+    base_depth: brace nesting level at the start of `text` — used when the
+    text is a fragment that begins inside an already-open block (e.g. a git
+    conflict hunk inside an entity), so indentation is preserved correctly.
+    """
     if not text or not text.strip():
         return text
     try:
@@ -13,7 +18,7 @@ def beautify(text: str, extension: str) -> str:
         if ext == ".entity":
             return _beautify_xml(text)
         elif ext in (".projection", ".client", ".fragment", ".utility", ".enumeration"):
-            return _beautify_dsl(text)
+            return _beautify_dsl(text, base_depth)
         elif ext in (".plsql", ".plsvc", ".pltst"):
             return _beautify_plsql(text)
         elif ext in (".ddlsource", ".cdb"):
@@ -54,10 +59,10 @@ _DSL_BLOCK_OPEN  = re.compile(r'\{\s*$')
 _DSL_BLOCK_CLOSE = re.compile(r'^\s*\}')
 _INDENT = "   "  # IFS Developer Studio standard: 3 spaces
 
-def _beautify_dsl(text: str) -> str:
+def _beautify_dsl(text: str, base_depth: int = 0) -> str:
     lines = text.splitlines()
     result = []
-    depth = 0
+    depth = max(0, base_depth)
 
     for line in lines:
         stripped = line.strip()
@@ -140,7 +145,9 @@ def _beautify_generic(text: str) -> str:
 
 def _remove_excess_blank_lines(text: str) -> str:
     """Collapse 2+ consecutive blank lines down to 1."""
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
+    # strip("\n") not strip() — a full strip would delete the first line's
+    # indentation when the fragment starts inside an open block.
+    return re.sub(r'\n{3,}', '\n\n', text).strip("\n").rstrip()
 
 
 def strip_blank_lines(text: str) -> str:
