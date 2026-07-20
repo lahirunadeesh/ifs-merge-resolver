@@ -553,6 +553,8 @@ button:disabled:hover { background: #b2bec3; }
 #previewCode .tok-str  { color: #a6e3a1; }   /* quoted strings                */
 #previewCode .tok-cmt  { color: #6c7086; font-style: italic; } /* -- comments  */
 #previewCode .tok-num  { color: #fab387; }   /* numbers                       */
+#previewCode .tok-tag  { color: #89b4fa; }   /* XML tags <NAME> </NAME>       */
+#previewCode .tok-val  { color: #f9e2af; }   /* XML element text values       */
 
 /* ── Info message ── */
 .info-message {

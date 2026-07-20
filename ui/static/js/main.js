@@ -425,7 +425,7 @@ function showStrategyPreview(strategy) {
         strategy === "repo"  ? (c.repo_block  || c.repo)  :
                                (c.preview_block || c.preview);
     if (!content) return;
-    document.getElementById("previewCode").innerHTML = highlightDsl(content);
+    document.getElementById("previewCode").innerHTML = highlightCode(content);
     const label = document.getElementById("previewLabel");
     label.textContent = PREVIEW_LABELS[strategy];
     label.className = "pane-label preview-label preview-label-" + strategy;
@@ -492,6 +492,36 @@ function renderDiff(diffLines) {
 }
 
 // ── Syntax highlight for DSL / IFS Marble preview ────────────────────────────
+
+// Dispatcher: pick the highlighter matching the content's shape.
+function highlightCode(code) {
+    if (/<\/?[A-Za-z_][\w.-]*>/.test(code)) return highlightXml(code);
+    return highlightDsl(code);
+}
+
+// XML (.entity, .utility, .enumeration) highlighter
+function highlightXml(code) {
+    let safe = escapeHtml(code);
+    const tokens = [];
+    function ph(cls, text) {
+        const id = `\x01${tokens.length}\x01`;
+        tokens.push(`<span class="tok-${cls}">${text}</span>`);
+        return id;
+    }
+    // XML comments
+    safe = safe.replace(/&lt;!--[\s\S]*?--&gt;/g, m => ph("cmt", m));
+    // IFS history/comment noise embedded in COMMENT_TEXT values
+    safe = safe.replace(/^(\s*)(--[^\n]*|\/\/\(\+\)[^\n]*|-{10,}\*?\/?)$/gm,
+        (_, ind, m) => ind + ph("cmt", m));
+    // Tags: <NAME>, </NAME>, <NAME attr="v"/>
+    safe = safe.replace(/&lt;\/?[A-Za-z_][\w.-]*(?:\s[^&<>\n]*?)?\/?&gt;/g,
+        m => ph("tag", m));
+    // Element text values (between a closed tag placeholder and the next one)
+    safe = safe.replace(/\x01(\d+)\x01([^\x01\n]+)\x01(\d+)\x01/g,
+        (_, a, val, b) => `\x01${a}\x01` + (val.trim() ? ph("val", val) : val) + `\x01${b}\x01`);
+    safe = safe.replace(/\x01(\d+)\x01/g, (_, i) => tokens[+i]);
+    return safe;
+}
 
 function highlightDsl(code) {
     // Process line-by-line so line structure is preserved exactly.
