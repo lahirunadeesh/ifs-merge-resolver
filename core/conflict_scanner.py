@@ -375,16 +375,18 @@ def _merge_dsl(local: list[str], repo: list[str],
         elif tag == "replace":
             local_chunk = local_items[i1:i2]
             repo_chunk  = repo_items[j1:j2]
-            local_chunk, repo_chunk, did_unwrap = _unwrap_if_asymmetric(
+            local_chunk, repo_chunk, did_unwrap, trailer = _unwrap_if_asymmetric(
                 local_chunk, repo_chunk, schema
             )
             if did_unwrap:
-                # Unwrapping changed the item lists — re-run SequenceMatcher on
-                # the new lists so shared items (same attribute on both sides)
-                # are merged rather than duplicated.
+                # Re-run SequenceMatcher on the unwrapped children so shared
+                # attributes are merged once rather than duplicated.
                 merged_items.extend(
                     _merge_item_lists(local_chunk, repo_chunk, schema)
                 )
+                # Append any trailing close-braces AFTER all merged content.
+                # (Case B: the '}' that closes the surrounding entity block.)
+                merged_items.extend(trailer)
             else:
                 merged_items.extend(local_chunk)
                 merged_items.extend(repo_chunk)
@@ -476,18 +478,49 @@ def _unwrap_if_asymmetric(
     local_sole = _sole_wrapper(local_items)
     repo_sole  = _sole_wrapper(repo_items)
 
-    # Returns (local_items, repo_items, did_unwrap)
+    def _split_trailing_close(items: list[dict]) -> tuple[list[dict], list[dict]]:
+        """
+        Separate trailing unmatched-close line items (standalone '}') from the
+        rest of the items.  In Case B the '}' closes the surrounding entity and
+        must be placed AFTER all merged children, not wherever SequenceMatcher
+        happens to put it.
+        Returns (items_without_close, close_items).
+        """
+        body: list[dict] = []
+        trailer: list[dict] = []
+        for it in items:
+            if it.get("type") == "line" and it.get("text", "").strip() == "}":
+                trailer.append(it)
+            else:
+                body.append(it)
+        return body, trailer
+
+    # Returns (local_items, repo_items, did_unwrap, trailer)
+    # trailer: items that must be appended AFTER the merged content (e.g. the
+    # closing brace from Case B that closes the surrounding entity block).
     if repo_sole is not None and _has_no_wrappers(local_items):
-        if _should_unwrap(repo_sole, _has_unmatched_close(local_items)):
+        local_has_close = _has_unmatched_close(local_items)
+        if _should_unwrap(repo_sole, local_has_close):
             child_lines = _children_to_lines(repo_sole)
-            return local_items, _parse_dsl_items(child_lines), True
+            repo_children = _parse_dsl_items(child_lines)
+            if local_has_close:
+                # Case B: strip the closing '}' so it doesn't appear mid-merge;
+                # it will be re-appended after all merged attributes.
+                local_body, trailer = _split_trailing_close(local_items)
+                return local_body, repo_children, True, trailer
+            return local_items, repo_children, True, []
 
     if local_sole is not None and _has_no_wrappers(repo_items):
-        if _should_unwrap(local_sole, _has_unmatched_close(repo_items)):
+        repo_has_close = _has_unmatched_close(repo_items)
+        if _should_unwrap(local_sole, repo_has_close):
             child_lines = _children_to_lines(local_sole)
-            return _parse_dsl_items(child_lines), repo_items, True
+            local_children = _parse_dsl_items(child_lines)
+            if repo_has_close:
+                repo_body, trailer = _split_trailing_close(repo_items)
+                return local_children, repo_body, True, trailer
+            return local_children, repo_items, True, []
 
-    return local_items, repo_items, False
+    return local_items, repo_items, False, []
 
 
 def _merge_dsl_block(local_block: dict, repo_block: dict,
