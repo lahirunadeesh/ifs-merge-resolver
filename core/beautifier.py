@@ -36,17 +36,29 @@ def beautify(text: str, extension: str, base_depth: int = 0) -> str:
 def _beautify_xml(text: str) -> str:
     try:
         dom = minidom.parseString(text.encode("utf-8"))
+        # Drop whitespace-only text nodes: toprettyxml keeps them AND adds
+        # its own indentation, producing blank lines between every element.
+        _strip_ws_text_nodes(dom.documentElement)
         pretty = dom.toprettyxml(indent="   ", encoding=None)
-        lines = pretty.split("\n")
+        # Remove any remaining whitespace-only lines
+        lines = [l for l in pretty.split("\n") if l.strip()]
         if lines and lines[0].startswith("<?xml"):
             if not text.strip().startswith("<?xml"):
                 lines = lines[1:]
-        result = "\n".join(lines)
-        return _remove_excess_blank_lines(result.strip())
+        return "\n".join(lines).strip()
     except Exception:
         # Partial XML fragment (e.g. cut mid-element by git conflict marker)
         # Preserve original whitespace rather than mangling it
         return _beautify_generic(text)
+
+
+def _strip_ws_text_nodes(node) -> None:
+    """Recursively remove whitespace-only text nodes from a DOM tree."""
+    for child in list(node.childNodes):
+        if child.nodeType == child.TEXT_NODE and not child.data.strip():
+            node.removeChild(child)
+        elif child.nodeType == child.ELEMENT_NODE:
+            _strip_ws_text_nodes(child)
 
 
 # ── Marble DSL (.projection, .client, .fragment, .utility, .enumeration) ──────
